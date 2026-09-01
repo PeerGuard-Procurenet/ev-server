@@ -15,11 +15,8 @@ import Asset from '../../../../types/Asset';
 import AssetStorage from '../../../../storage/mongodb/AssetStorage';
 import AuthorizationService from './AuthorizationService';
 import Authorizations from '../../../../authorization/Authorizations';
-import AxiosFactory from '../../../../utils/AxiosFactory';
-import { AxiosResponse } from 'axios';
 import BillingStorage from '../../../../storage/mongodb/BillingStorage';
 import CarStorage from '../../../../storage/mongodb/CarStorage';
-import CentralSystemRestServiceConfiguration from '../../../../types/configuration/CentralSystemRestServiceConfiguration';
 import { ChargingProfile } from '../../../../types/ChargingProfile';
 import ChargingStationStorage from '../../../../storage/mongodb/ChargingStationStorage';
 import ChargingStationTemplateStorage from '../../../../storage/mongodb/ChargingStationTemplateStorage';
@@ -85,30 +82,6 @@ export default class UtilsService {
       }
       await UserStorage.addSitesToUser(tenant, user.id, siteIDs);
     }
-  }
-
-  public static async checkReCaptcha(tenant: Tenant, action: ServerAction, method: string,
-      centralSystemRestConfig: CentralSystemRestServiceConfiguration, captcha: string, remoteAddress: string): Promise<void> {
-    const response = await UtilsService.performRecaptchaAPICall(tenant, centralSystemRestConfig, captcha, remoteAddress);
-    if (!response.data.success) {
-      throw new AppError({
-        errorCode: HTTPError.GENERAL_ERROR,
-        module: MODULE_NAME, action, method,
-        message: 'The Captcha is invalid',
-      });
-    }
-    if (response.data.score < centralSystemRestConfig.captchaScore) {
-      throw new AppError({
-        errorCode: HTTPError.GENERAL_ERROR,
-        module: MODULE_NAME, action, method,
-        message: `The Captcha score is too low, got ${response.data.score as string} but expected ${centralSystemRestConfig.captchaScore}`,
-      });
-    }
-    await Logging.logDebug({
-      tenantID: tenant?.id,
-      module: MODULE_NAME, action, method,
-      message: `The Captcha score is ${response.data.score as string} (score limit is ${centralSystemRestConfig.captchaScore})`,
-    });
   }
 
   public static async checkAndGetChargingStationAuthorization(tenant: Tenant, userToken: UserToken, chargingStationID: string, authAction: Action,
@@ -1722,20 +1695,4 @@ export default class UtilsService {
     return tag;
   }
 
-  private static async performRecaptchaAPICall(tenant: Tenant, centralSystemRestConfig: CentralSystemRestServiceConfiguration,captcha: string, remoteAddress: string)
-      : Promise<AxiosResponse<any, any>> {
-    const recaptchaURL = UtilsService.buildRecaptchaURL(centralSystemRestConfig.captchaSecretKey, captcha, remoteAddress);
-    const axiosInstance = AxiosFactory.getAxiosInstance(tenant);
-    let response = await axiosInstance.get(recaptchaURL);
-    // Call not successful, attempt with alternative URL
-    if (!response.data.success && centralSystemRestConfig.alternativeCaptchaSecretKey) {
-      const alternativeRecaptchaURL = UtilsService.buildRecaptchaURL(centralSystemRestConfig.alternativeCaptchaSecretKey, captcha, remoteAddress);
-      response = await axiosInstance.get(alternativeRecaptchaURL);
-    }
-    return response;
-  }
-
-  private static buildRecaptchaURL(captchaSecretKey: string, captcha: string, remoteAddress: string) {
-    return `https://www.google.com/recaptcha/api/siteverify?secret=${captchaSecretKey}&response=${captcha}&remoteip=${remoteAddress}`;
-  }
 }

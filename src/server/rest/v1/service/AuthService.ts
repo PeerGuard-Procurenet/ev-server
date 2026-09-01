@@ -131,9 +131,6 @@ export default class AuthService {
       filteredRequest.locale = Constants.DEFAULT_LOCALE;
     }
     req.user = { tenantID: req.tenant.id };
-    // Check reCaptcha
-    await UtilsService.checkReCaptcha(req.tenant, action, 'handleRegisterUser',
-      centralSystemRestConfig, filteredRequest.captcha, req.connection.remoteAddress);
     // Check email
     const user = await UserStorage.getUserByEmail(req.tenant, filteredRequest.email);
     if (user) {
@@ -232,18 +229,6 @@ export default class AuthService {
 
   public static async checkAndSendResetPasswordConfirmationEmail(tenant: Tenant, filteredRequest: Partial<HttpResetPasswordRequest>, action: ServerAction, req: Request,
       res: Response, next: NextFunction): Promise<void> {
-    // No hash: Send email with init pass hash link
-    if (!filteredRequest.captcha) {
-      throw new AppError({
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The captcha is mandatory',
-        module: MODULE_NAME,
-        method: 'checkAndSendResetPasswordConfirmationEmail'
-      });
-    }
-    // Check reCaptcha
-    await UtilsService.checkReCaptcha(tenant, action, 'checkAndSendResetPasswordConfirmationEmail',
-      centralSystemRestConfig, filteredRequest.captcha, req.connection.remoteAddress);
     // Generate a new password
     const user = await UserStorage.getUserByEmail(tenant, filteredRequest.email);
     UtilsService.assertObjectExists(action, user, `User with email '${filteredRequest.email}' does not exist`,
@@ -491,9 +476,6 @@ export default class AuthService {
         action: action
       });
     }
-    // Check reCaptcha
-    await UtilsService.checkReCaptcha(req.tenant, action, 'handleResendVerificationEmail',
-      centralSystemRestConfig, filteredRequest.captcha, req.connection.remoteAddress);
     // Is valid email?
     const user = await UserStorage.getUserByEmail(req.tenant, filteredRequest.email);
     UtilsService.assertObjectExists(action, user, `User with email '${filteredRequest.email}' does not exist`,

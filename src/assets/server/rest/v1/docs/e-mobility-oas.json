@@ -1186,8 +1186,7 @@
                   "firstName",
                   "password",
                   "acceptEula",
-                  "tenant",
-                  "captcha"
+                  "tenant"
                 ],
                 "properties": {
                   "email": {
@@ -1502,8 +1501,7 @@
                 "type": "object",
                 "required": [
                   "email",
-                  "tenant",
-                  "captcha"
+                  "tenant"
                 ],
                 "properties": {
                   "email": {

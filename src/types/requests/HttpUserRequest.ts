@@ -81,7 +81,7 @@ export interface HttpLoginRequest {
 
 export interface HttpResetPasswordRequest {
   email: string;
-  captcha: string;
+  captcha?: string;
   password: string;
   hash: string;
 }
@@ -92,7 +92,7 @@ export interface HttpRegisterUserRequest extends HttpLoginRequest {
   name: string;
   firstName: string;
   password: string;
-  captcha: string;
+  captcha?: string;
   status: string;
   locale: string;
   mobile: string;
@@ -105,7 +105,7 @@ export interface HttpVerifyEmailRequest {
 
 export interface HttpResendVerificationMailRequest {
   email: string;
-  captcha: string;
+  captcha?: string;
 }
 
 export interface HttpEulaRequest {

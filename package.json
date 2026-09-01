@@ -64,6 +64,7 @@
     "test-jest-pluggin": "npm version && cross-env TS_NODE_FILES=true jest --config='test/jest.config.ts' --reporters='default' --reporters='./JestEvseReporter.js' --runInBand --logHeapUsage --verbose --colors --silent --forceExit --testPathIgnorePatterns='.*Runner.ts$'",
     "test": "npm run test:jest -- test/api/*Test.ts",
     "test:createContext": "npm run test:jest -- test/api/context/ContextBuilderRunner.ts",
+    "seed:charging-station": "node src/scripts/SeedChargingStation.js",
     "test:create:utbilling": "cross-env TS_NODE_FILES=true TENANT_FILTER=utbilling.* jest --config='test/jest.config.ts' --runInBand --logHeapUsage --verbose --colors --silent --forceExit -- test/**/**/ContextBuilderRunner.ts",
     "test:asset": "npm run test:jest -- test/api/AssetTest.ts",
     "test:authentication": "npm run test:jest -- test/api/AuthenticationTest.ts",

@@ -35,7 +35,6 @@
     "name",
     "firstName",
     "password",
-    "acceptEula",
-    "captcha"
+    "acceptEula"
   ]
 }

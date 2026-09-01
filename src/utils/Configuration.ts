@@ -108,9 +108,6 @@ export default class Configuration {
   public static getCentralSystemRestServiceConfig(): CentralSystemRestServiceConfiguration {
     const centralSystemRestService = Configuration.getConfig().CentralSystemRestService;
     if (!Configuration.isUndefined('CentralSystemRestService', centralSystemRestService)) {
-      if (Configuration.isUndefined('CentralSystemRestService.captchaScore', centralSystemRestService.captchaScore)) {
-        centralSystemRestService.captchaScore = 0.25;
-      }
       return centralSystemRestService;
     }
   }

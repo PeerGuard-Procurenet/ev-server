@@ -36,8 +36,6 @@
     "userTechnicalTokenLifetimeDays": 365,
     "passwordWrongNumberOfTrial": 3,
     "passwordBlockedWaitTimeMin": 5,
-    "captchaSecretKey": "YourCaptchaSecretKey",
-    "captchaScore": 0.25,
     "debug": false
   },
   "CentralSystemFrontEnd": {

@@ -7,8 +7,5 @@ export default interface CentralSystemRestServiceConfiguration extends CentralSy
   userTechnicalTokenLifetimeDays: number;
   passwordWrongNumberOfTrial: number;
   passwordBlockedWaitTimeMin: number;
-  captchaSecretKey: string;
-  alternativeCaptchaSecretKey: string;
-  captchaScore: number;
   debug: boolean;
 }

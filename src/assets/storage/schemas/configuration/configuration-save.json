@@ -196,9 +196,7 @@
         "userDemoTokenLifetimeDays",
         "userTechnicalTokenLifetimeDays",
         "passwordWrongNumberOfTrial",
-        "passwordBlockedWaitTimeMin",
-        "captchaSecretKey",
-        "captchaScore"
+        "passwordBlockedWaitTimeMin"
       ]
     },
     "CentralSystemFrontEnd": {

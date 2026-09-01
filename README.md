@@ -255,18 +255,10 @@ To set the end point, fill the following information in the **config.json** file
     "userTechnicalTokenLifetimeDays": 180,
     "passwordWrongNumberOfTrial": 3,
     "passwordBlockedWaitTimeMin": 5,
-    "captchaSecretKey": "YOUR_CAPTCHA_SECRET",
     "debug": false
   }
 ```
 
-In order to properly call the REST endpoints, both ev-server and clients (ev-dashboard, ev-mobile, etc.) must reference a Google reCaptcha key. You can refer to this link https://www.google.com/recaptcha/admin/create, then copy the server key in config.json file, in section CentralSystemRestService:
-
-```json
-    ...
-    "captchaSecretKey": "<GOOGLE_RECAPTCHA_KEY_SERVER>"
-    ...
-```
 ### Central Service Server (CSS) > Database
 
 The server connects to an existing MongoDB deployment. A local MongoDB installation is not required.
