@@ -49,10 +49,7 @@ export default class Configuration {
   }
 
   public static getShieldConfig(): ShieldConfiguration {
-    const shield = Configuration.getConfig().Shield;
-    if (!Configuration.isUndefined('Shield', shield)) {
-      return shield;
-    }
+    return Configuration.getConfig().Shield;
   }
 
   public static getSchedulerConfig(): SchedulerConfiguration {
@@ -119,10 +116,7 @@ export default class Configuration {
   }
 
   public static getMonitoringConfig(): MonitoringConfiguration {
-    const monitoring = Configuration.getConfig().Monitoring;
-    if (!Configuration.isUndefined('Monitoring', monitoring)) {
-      return monitoring;
-    }
+    return Configuration.getConfig().Monitoring;
   }
 
   public static getOCPIServiceConfig(): OCPIServiceConfiguration {
@@ -208,6 +202,14 @@ export default class Configuration {
   public static getStorageConfig(): StorageConfiguration {
     const storage = Configuration.getConfig().Storage;
     if (!Configuration.isUndefined('Storage', storage)) {
+      // Runtime secrets must not be committed to config.json. An environment
+      // variable also makes the same build deployable against any MongoDB
+      // provider (Atlas, DocumentDB-compatible services, or self-hosted).
+      const mongoDBURI = process.env.MONGODB_URI?.trim();
+      if (!mongoDBURI) {
+        throw new Error('MONGODB_URI environment variable is required');
+      }
+      storage.uri = mongoDBURI;
       return storage;
     }
   }
@@ -292,10 +294,7 @@ export default class Configuration {
   }
 
   public static getCacheConfig(): CacheConfiguration {
-    const cache = Configuration.getConfig().Cache;
-    if (!Configuration.isUndefined('Cache', cache)) {
-      return cache;
-    }
+    return Configuration.getConfig().Cache;
   }
 
   private static getConfig(): ConfigurationData {
@@ -306,7 +305,15 @@ export default class Configuration {
       } else if (fs.existsSync('/config/config.json')) {
         configurationPath = '/config/config.json'; // K8s Environment
       } else {
-        configurationPath = `${global.appRoot}/assets/config.json`; // AWS ECS environment only
+        const localConfigurationPath = `${global.appRoot}/assets/config.json`;
+        if (fs.existsSync(localConfigurationPath)) {
+          configurationPath = localConfigurationPath; // AWS ECS or local environment
+        } else {
+          configurationPath = `${global.appRoot}/assets/config-template-http.json`;
+          console.warn(chalk.yellow(
+            `[Warning] '${localConfigurationPath}' was not found; using the HTTP configuration template`
+          ));
+        }
       }
       const configuration = JSON.parse(fs.readFileSync(configurationPath, 'utf8')) as ConfigurationData;
       Configuration.config = ConfigurationValidatorStorage.getInstance().validateConfigurationSave(configuration);

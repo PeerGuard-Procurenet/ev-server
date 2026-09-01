@@ -269,20 +269,35 @@ In order to properly call the REST endpoints, both ev-server and clients (ev-das
 ```
 ### Central Service Server (CSS) > Database
 
-You have now to connect the server to the database.
+The server connects to an existing MongoDB deployment. A local MongoDB installation is not required.
+
+Set the required `MONGODB_URI` environment variable before starting the server. It should include the database name, for example:
+
+```shell
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>/<database>?retryWrites=true&w=majority
+```
+
+The server automatically loads this variable from a `.env` file in the project root. The `.env` file is ignored by Git.
+
+PowerShell example:
+
+```powershell
+$env:MONGODB_URI = "mongodb+srv://<user>:<password>@<cluster>/<database>?retryWrites=true&w=majority"
+npm run start
+```
+
+Both `npm run start` and `npm run start:prod` build the production bundle before launching it. The MongoDB URI is never printed to the application console because it can contain credentials.
 
 #### Configuration
 
-Database connection info:
+Keep the MongoDB implementation and pool settings in `config.json`; `uri` can remain as a non-secret placeholder because the server always obtains it from the environment at runtime:
 
 ```json
   "Storage": {
     "implementation": "mongodb",
-    "host": "localhost",
-    "port": 27017,
-    "user": "evse-user",
-    "password": "YourPassword",
-    "database" : "evse"
+    "uri": "ProvidedByMONGODB_URI",
+    "debug": false,
+    "poolSize": 10
   }
 ```
 
@@ -587,4 +602,3 @@ That Makefile option works for all targets.
 This file and all other files in this repository are licensed under the Apache Software License, v.2 and copyrighted under the copyright in [NOTICE](NOTICE) file, except as noted otherwise in the [LICENSE](LICENSE) file.
 
 Please note that Docker images can contain other software which may be licensed under different licenses. This LICENSE and NOTICE files are also included in the Docker image. For any usage of built Docker images please make sure to check the licenses of the artifacts contained in the images.
-

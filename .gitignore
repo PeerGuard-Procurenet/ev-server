@@ -91,3 +91,5 @@ Thumbs.db
 *.mta
 mta_archives/
 
+# ENV
+.env

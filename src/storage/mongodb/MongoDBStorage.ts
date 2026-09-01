@@ -278,7 +278,8 @@ export default class MongoDBStorage {
       mongoUrl = mongoUriBuilder(uri);
     }
     // Connect to EVSE
-    Logging.logConsoleDebug(`Connecting to '${mongoUrl}'`);
+    // Do not print connection strings: MongoDB URIs commonly contain credentials.
+    Logging.logConsoleDebug(`Connecting to MongoDB using ${this.dbConfig.uri ? 'the configured URI' : 'individual connection settings'}`);
     // Connection pool size
     let minPoolSize: number, maxPoolSize: number;
     if (this.dbConfig.minPoolSize && this.dbConfig.maxPoolSize) {
