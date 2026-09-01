@@ -288,6 +288,8 @@ npm run start
 
 Both `npm run start` and `npm run start:prod` build the production bundle before launching it. The MongoDB URI is never printed to the application console because it can contain credentials.
 
+When the hosting platform provides a `PORT` environment variable, the server exposes all services through that single public port. The gateway routes `/ocpi` to OCPI, `/odata` to OData, URLs containing `/api/oicp/` to OICP, HTTP `/OCPP15` and `/OCPP16` requests to OCPP-S (SOAP), and `/OCPP...` WebSocket upgrades to OCPP-J. All other HTTP requests go to the REST API. This supports single-port platforms such as Render; TLS termination changes the public protocols to `https://` and `wss://`.
+
 #### Configuration
 
 Keep the MongoDB implementation and pool settings in `config.json`; `uri` can remain as a non-secret placeholder because the server always obtains it from the environment at runtime:

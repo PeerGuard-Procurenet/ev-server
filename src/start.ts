@@ -27,6 +27,7 @@ import ODataServer from './server/odata/ODataServer';
 import ODataServiceConfiguration from './types/configuration/ODataServiceConfiguration';
 import OICPServer from './server/oicp/OICPServer';
 import OICPServiceConfiguration from './types/configuration/OICPServiceConfiguration';
+import PublicGatewayServer from './server/PublicGatewayServer';
 import RestServer from './server/rest/RestServer';
 import SchedulerConfiguration from './types/configuration/SchedulerConfiguration';
 import SchedulerManager from './scheduler/SchedulerManager';
@@ -49,6 +50,7 @@ export default class Bootstrap {
   private static oicpServer: OICPServer;
   private static oDataServer: ODataServer;
   private static monitoringServer: MonitoringServer;
+  private static publicGatewayServer: PublicGatewayServer;
 
   private static centralSystemRestConfig: CentralSystemRestServiceConfiguration;
   private static chargingStationConfig: ChargingStationConfiguration;
@@ -172,6 +174,7 @@ export default class Bootstrap {
       // Start all the Servers
       // -------------------------------------------------------------------------
       serverStarted = await Bootstrap.startServers();
+      Bootstrap.startPublicGateway();
 
       // -------------------------------------------------------------------------
       // Init the Scheduler
@@ -341,6 +344,32 @@ export default class Bootstrap {
       serverTypes.push(ServerType.BATCH_SERVER);
     }
     return serverTypes;
+  }
+
+  private static startPublicGateway(): void {
+    const publicPortValue = process.env.PORT?.trim();
+    if (!publicPortValue) {
+      Logging.logConsoleDebug('PORT is not set; the unified public gateway is disabled');
+      return;
+    }
+    const publicPort = Number(publicPortValue);
+    if (!Number.isInteger(publicPort) || publicPort < 1 || publicPort > 65535) {
+      throw new Error(`PORT must be a valid TCP port, received '${publicPortValue}'`);
+    }
+    const jsonOCPPConfig = Bootstrap.centralSystemsConfig?.find(
+      (config) => config.implementation === CentralSystemImplementation.JSON
+    );
+    const soapOCPPConfig = Bootstrap.centralSystemsConfig?.find(
+      (config) => config.implementation === CentralSystemImplementation.SOAP
+    );
+    if (!Bootstrap.centralSystemRestConfig || !jsonOCPPConfig) {
+      throw new Error('PORT requires both the REST server and a JSON OCPP server to be configured');
+    }
+    Bootstrap.publicGatewayServer = new PublicGatewayServer(
+      publicPort, Bootstrap.centralSystemRestConfig, jsonOCPPConfig, soapOCPPConfig,
+      Bootstrap.ocpiConfig, Bootstrap.oicpConfig, Bootstrap.oDataServerConfig
+    );
+    Bootstrap.publicGatewayServer.start();
   }
 
   private static async initShield(): Promise<void> {
