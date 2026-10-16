@@ -99,7 +99,8 @@ export default class OCPPValidator extends SchemaValidator {
 
   public validateStopTransaction(chargingStation: ChargingStation, stopTransaction: OCPPStopTransactionRequestExtended): void {
     stopTransaction.idTag = this.cleanUpTagID(stopTransaction.idTag);
-    if (chargingStation.ocppVersion === OCPPVersion.VERSION_16) {
+    // OCPP 2.0.1 transactions are converted to the OCPP 1.6 format by the OCPP 2.0.1 server
+    if (chargingStation.ocppVersion === OCPPVersion.VERSION_16 || chargingStation.ocppVersion === OCPPVersion.VERSION_201) {
       this.validate(this.stopTransactionRequest16, stopTransaction);
     } else {
       this.validate(this.stopTransactionRequest15, stopTransaction);

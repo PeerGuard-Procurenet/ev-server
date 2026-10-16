@@ -485,6 +485,7 @@ export default class AuthorizationService {
     registrationToken.ocpp15SOAPSecureUrl = Utils.buildOCPPServerSecureURL(tenant, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
     registrationToken.ocpp16SOAPSecureUrl = Utils.buildOCPPServerSecureURL(tenant, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
     registrationToken.ocpp16JSONSecureUrl = Utils.buildOCPPServerSecureURL(tenant, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
+    registrationToken.ocpp201JSONSecureUrl = Utils.buildOCPPServerSecureURL(tenant, OCPPVersion.VERSION_201, OCPPProtocol.JSON, registrationToken.id);
   }
 
   public static async checkAndGetChargingStationTemplateAuthorizations(tenant: Tenant, userToken: UserToken,

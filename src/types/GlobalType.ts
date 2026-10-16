@@ -13,6 +13,7 @@ import { Log } from './Log';
 import MongoDBStorage from '../storage/mongodb/MongoDBStorage';
 import MonitoringServer from '../monitoring/MonitoringServer';
 import OCPIEndpoint from './ocpi/OCPIEndpoint';
+import Ocpp201Server from '../server/ocpp201/Ocpp201Server';
 import { PerformanceRecordGroup } from './Performance';
 import PricingDefinition from './Pricing';
 import RefundReport from './Refund';
@@ -98,6 +99,7 @@ interface TSGlobal extends Global {
   appRoot: string;
   centralSystemJsonServer: JsonOCPPServer;
   centralSystemSoapServer: SoapOCPPServer;
+  centralSystemOcpp201Server: Ocpp201Server;
   serverType: ServerType;
   monitoringServer : MonitoringServer;
   cache: Cache;

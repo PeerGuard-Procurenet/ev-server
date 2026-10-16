@@ -1307,8 +1307,8 @@ export default class OCPPService {
         transactionId: meterValues.transactionId,
         timestamp: Utils.convertToDate(meterValue.timestamp),
       } as OCPPNormalizedMeterValue;
-      // OCPP 1.6
-      if (chargingStation.ocppVersion === OCPPVersion.VERSION_16) {
+      // OCPP 1.6 (OCPP 2.0.1 meter values are converted to the OCPP 1.6 format by the OCPP 2.0.1 server)
+      if (chargingStation.ocppVersion === OCPPVersion.VERSION_16 || chargingStation.ocppVersion === OCPPVersion.VERSION_201) {
         // Always an Array
         if (!Array.isArray(meterValue.sampledValue)) {
           meterValue.sampledValue = [meterValue.sampledValue];

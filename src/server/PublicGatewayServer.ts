@@ -20,12 +20,13 @@ export default class PublicGatewayServer {
   private readonly ocpiTarget?: string;
   private readonly oicpTarget?: string;
   private readonly oDataTarget?: string;
+  private readonly ocpp201Target?: string;
   private readonly proxy = httpProxy.createProxyServer({ xfwd: true });
 
   public constructor(port: number, restConfig: CentralSystemRestServiceConfiguration,
       ocppJsonConfig: CentralSystemConfiguration, ocppSoapConfig?: CentralSystemConfiguration,
       ocpiConfig?: OCPIServiceConfiguration, oicpConfig?: OICPServiceConfiguration,
-      oDataConfig?: ODataServiceConfiguration) {
+      oDataConfig?: ODataServiceConfiguration, ocpp201Config?: CentralSystemConfiguration) {
     this.port = port;
     this.restTarget = `http://127.0.0.1:${restConfig.port}`;
     this.ocppJsonTarget = `ws://127.0.0.1:${ocppJsonConfig.port}`;
@@ -33,9 +34,10 @@ export default class PublicGatewayServer {
     this.ocpiTarget = this.getTarget(ocpiConfig);
     this.oicpTarget = this.getTarget(oicpConfig);
     this.oDataTarget = this.getTarget(oDataConfig);
+    this.ocpp201Target = ocpp201Config ? `ws://127.0.0.1:${ocpp201Config.port}` : null;
 
     const internalPorts = [restConfig.port, ocppJsonConfig.port, ocppSoapConfig?.port,
-      ocpiConfig?.port, oicpConfig?.port, oDataConfig?.port].filter((internalPort) => internalPort);
+      ocpiConfig?.port, oicpConfig?.port, oDataConfig?.port, ocpp201Config?.port].filter((internalPort) => internalPort);
     if (internalPorts.includes(port)) {
       throw new Error(
         `Public PORT '${port}' must differ from every internal service port (${internalPorts.join(', ')})`
@@ -61,7 +63,14 @@ export default class PublicGatewayServer {
         socket.destroy();
         return;
       }
-      this.proxy.ws(request, socket, head, { target: this.ocppJsonTarget }, (error) => {
+      // OCPP 2.0.1 has its own server
+      const target = this.isOcpp201URL(request.url) ? this.ocpp201Target : this.ocppJsonTarget;
+      if (!target) {
+        socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      this.proxy.ws(request, socket, head, { target }, (error) => {
         console.error(`${MODULE_NAME}: OCPP WebSocket proxy error: ${error.message}`);
         socket.destroy();
       });
@@ -87,6 +96,11 @@ export default class PublicGatewayServer {
       return this.ocppSoapTarget;
     }
     return this.restTarget;
+  }
+
+  private isOcpp201URL(url: string): boolean {
+    const normalizedURL = url.toUpperCase();
+    return normalizedURL === '/OCPP201' || normalizedURL.startsWith('/OCPP201/') || normalizedURL.startsWith('/OCPP201?');
   }
 
   private getTarget(config?: { port: number }): string | undefined {

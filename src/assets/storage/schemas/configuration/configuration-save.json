@@ -118,7 +118,7 @@
           },
           "implementation": {
             "type": "string",
-            "enum": ["soap", "json"]
+            "enum": ["soap", "json", "ocpp201"]
           },
           "protocol": {
             "type": "string",

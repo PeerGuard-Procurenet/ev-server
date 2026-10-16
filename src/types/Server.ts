@@ -765,6 +765,7 @@ export enum ServerType {
   REST_SERVER = 'Rest',
   SOAP_SERVER = 'Soap',
   JSON_SERVER = 'Json',
+  OCPP201_SERVER = 'Ocpp201',
   OCPI_SERVER = 'Ocpi',
   OICP_SERVER = 'Oicp',
   ODATA_SERVER = 'OData',

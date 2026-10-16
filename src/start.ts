@@ -27,6 +27,7 @@ import ODataServer from './server/odata/ODataServer';
 import ODataServiceConfiguration from './types/configuration/ODataServiceConfiguration';
 import OICPServer from './server/oicp/OICPServer';
 import OICPServiceConfiguration from './types/configuration/OICPServiceConfiguration';
+import Ocpp201Server from './server/ocpp201/Ocpp201Server';
 import PublicGatewayServer from './server/PublicGatewayServer';
 import RestServer from './server/rest/RestServer';
 import SchedulerConfiguration from './types/configuration/SchedulerConfiguration';
@@ -46,6 +47,7 @@ export default class Bootstrap {
   private static storageConfig: StorageConfiguration;
   private static SoapCentralSystemServer: SoapOCPPServer;
   private static JsonCentralSystemServer: JsonOCPPServer;
+  private static Ocpp201CentralSystemServer: Ocpp201Server;
   private static ocpiServer: OCPIServer;
   private static oicpServer: OICPServer;
   private static oDataServer: ODataServer;
@@ -292,6 +294,14 @@ export default class Bootstrap {
               Bootstrap.JsonCentralSystemServer.start();
               serverTypes.push(ServerType.JSON_SERVER);
               break;
+            // OCPP 2.0.1 (JSON)
+            case CentralSystemImplementation.OCPP201:
+              // Create implementation
+              Bootstrap.Ocpp201CentralSystemServer = new Ocpp201Server(centralSystemConfig, Bootstrap.chargingStationConfig);
+              // Start
+              Bootstrap.Ocpp201CentralSystemServer.start();
+              serverTypes.push(ServerType.OCPP201_SERVER);
+              break;
             // Not Found
             default:
               // eslint-disable-next-line no-console
@@ -362,12 +372,15 @@ export default class Bootstrap {
     const soapOCPPConfig = Bootstrap.centralSystemsConfig?.find(
       (config) => config.implementation === CentralSystemImplementation.SOAP
     );
+    const ocpp201Config = Bootstrap.centralSystemsConfig?.find(
+      (config) => config.implementation === CentralSystemImplementation.OCPP201
+    );
     if (!Bootstrap.centralSystemRestConfig || !jsonOCPPConfig) {
       throw new Error('PORT requires both the REST server and a JSON OCPP server to be configured');
     }
     Bootstrap.publicGatewayServer = new PublicGatewayServer(
       publicPort, Bootstrap.centralSystemRestConfig, jsonOCPPConfig, soapOCPPConfig,
-      Bootstrap.ocpiConfig, Bootstrap.oicpConfig, Bootstrap.oDataServerConfig
+      Bootstrap.ocpiConfig, Bootstrap.oicpConfig, Bootstrap.oDataServerConfig, ocpp201Config
     );
     Bootstrap.publicGatewayServer.start();
   }

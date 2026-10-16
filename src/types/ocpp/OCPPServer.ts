@@ -38,12 +38,14 @@ export enum OCPPVersion {
   VERSION_15 = '1.5',
   VERSION_16 = '1.6',
   VERSION_20 = '2.0',
+  VERSION_201 = '2.0.1',
 }
 
 export const OCPPVersionURLPath: Record<OCPPVersion, string> = Object.freeze({
   '1.5': 'OCPP15',
   '1.6': 'OCPP16',
-  '2.0': 'OCPP20'
+  '2.0': 'OCPP20',
+  '2.0.1': 'OCPP201'
 });
 
 export enum OCPPGeneralResponse {

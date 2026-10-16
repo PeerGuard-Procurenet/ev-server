@@ -24,6 +24,14 @@
       "port": 8010,
       "keepaliveinterval": 30,
       "debug": false
+    },
+    {
+      "type": "ocpp",
+      "implementation": "ocpp201",
+      "protocol": "ws",
+      "host": "localhost",
+      "port": 8011,
+      "debug": false
     }
   ],
   "CentralSystemRestService": {

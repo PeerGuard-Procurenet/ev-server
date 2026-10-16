@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { MongoClient, ObjectId } = require('mongodb');
+const bcrypt = require('bcryptjs');
 
 const TENANT_NAME = process.env.SEED_TENANT_NAME || 'Charging Station Test Tenant';
 const TENANT_SUBDOMAIN = process.env.SEED_TENANT_SUBDOMAIN || 'charging-station-test';
@@ -9,6 +10,8 @@ const TOKEN_DESCRIPTION = process.env.SEED_TOKEN_DESCRIPTION || 'Initial chargin
 const TOKEN_VALIDITY_DAYS = Number(process.env.SEED_TOKEN_VALIDITY_DAYS || 365);
 const TEST_STATION_ID = process.env.SEED_STATION_ID || 'TEST-CHARGER-001';
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ev-server-moeo.onrender.com').replace(/\/$/, '');
+const ADMIN_EMAIL = (process.env.SEED_ADMIN_EMAIL || 'admin@charging-station-test.com').toLowerCase();
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'EvAdmin.Test2026!';
 
 async function seed() {
   const mongoDBURI = process.env.MONGODB_URI?.trim();
@@ -61,6 +64,38 @@ async function seed() {
       await registrationTokens.insertOne(token);
     }
 
+    const users = database.collection(`${tenant._id.toString()}.users`);
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    const existingAdmin = await users.findOne({ email: ADMIN_EMAIL });
+    const adminID = existingAdmin?._id || new ObjectId();
+    await users.updateOne(
+      { email: ADMIN_EMAIL },
+      {
+        $set: {
+          issuer: true,
+          name: 'Test',
+          firstName: 'Admin',
+          email: ADMIN_EMAIL,
+          mobile: '',
+          locale: 'en_US',
+          role: 'A',
+          status: 'A',
+          password: passwordHash,
+          passwordWrongNbrTrials: 0,
+          passwordBlockedUntil: null,
+          passwordResetHash: null,
+          verifiedAt: now,
+          notificationsActive: false,
+          lastChangedOn: now
+        },
+        $setOnInsert: {
+          _id: adminID,
+          createdOn: now
+        }
+      },
+      { upsert: true }
+    );
+
     const tenantID = tenant._id.toString();
     const tokenID = token._id.toString();
     const websocketBaseURL = PUBLIC_BASE_URL.replace(/^http/i, 'ws');
@@ -72,6 +107,10 @@ async function seed() {
     console.log(`Test station ID: ${TEST_STATION_ID}`);
     console.log(`OCPP 1.6 JSON URL: ${websocketBaseURL}/OCPP16/${tenantID}/${tokenID}/${TEST_STATION_ID}`);
     console.log(`Base URL for chargers that append their ID: ${websocketBaseURL}/OCPP16/${tenantID}/${tokenID}`);
+    console.log('Dashboard admin login:');
+    console.log(`Tenant: ${TENANT_SUBDOMAIN}`);
+    console.log(`Email: ${ADMIN_EMAIL}`);
+    console.log(`Password: ${ADMIN_PASSWORD}`);
   } finally {
     await client.close();
   }

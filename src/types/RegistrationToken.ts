@@ -12,4 +12,5 @@ export default interface RegistrationToken extends CreatedUpdatedProps, Registra
   ocpp15SOAPSecureUrl?: string;
   ocpp16SOAPSecureUrl?: string;
   ocpp16JSONSecureUrl?: string;
+  ocpp201JSONSecureUrl?: string;
 }

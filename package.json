@@ -78,6 +78,7 @@
     "test:locking": "npm run test:jest -- test/api/LockingTest.ts",
     "test:ocpi": "npm run test:jest -- test/api/OCPIServerTest.ts",
     "test:ocpp": "npm run test:jest -- test/api/OCPP*Test.ts",
+    "test:ocpp201": "npm run test:jest -- test/ocpp201/*Test.ts",
     "test:oicp": "npm run test:jest -- test/api/OICP*Test.ts",
     "test:registrationToken": "npm run test:jest -- test/api/RegistrationTokenTest.ts",
     "test:security": "npm run test:jest -- test/api/SecurityTest.ts",
