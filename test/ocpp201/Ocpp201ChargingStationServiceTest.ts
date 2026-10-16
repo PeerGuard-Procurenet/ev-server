@@ -43,6 +43,7 @@ jest.mock('../../src/storage/mongodb/TransactionStorage', () => ({
 // In memory storage behaving like MongoDB (undefined properties are stored as null)
 jest.mock('../../src/server/ocpp201/storage/Ocpp201TransactionStorage', () => {
   const store = new Map<string, Record<string, unknown>>();
+  const remoteStarts = new Map<string, Record<string, unknown>>();
   const clone = (mapping: Record<string, unknown>) => {
     if (!mapping) {
       return null;
@@ -58,7 +59,10 @@ jest.mock('../../src/server/ocpp201/storage/Ocpp201TransactionStorage', () => {
     __esModule: true,
     default: {
       store,
+      remoteStarts,
       buildMappingID,
+      getRemoteStart: jest.fn(async (tenant: unknown, chargingStationID: string, remoteStartId: number) =>
+        Promise.resolve(clone(remoteStarts.get(`${chargingStationID}~${remoteStartId}`)))),
       getMapping: jest.fn(async (tenant: unknown, chargingStationID: string, transactionId: string) =>
         Promise.resolve(clone(store.get(buildMappingID(chargingStationID, transactionId))))),
       getMappingByPlatformTransactionID: jest.fn(async (tenant: unknown, chargingStationID: string, platformTransactionID: number) =>
@@ -77,6 +81,7 @@ jest.mock('../../src/server/ocpp201/storage/Ocpp201TransactionStorage', () => {
 const TENANT_ID = '5be7fb271014d90008992f06';
 const tenant = { id: TENANT_ID, subdomain: 'test' };
 const mappingStore = (Ocpp201TransactionStorage as unknown as { store: Map<string, Ocpp201TransactionMapping> }).store;
+const remoteStartStore = (Ocpp201TransactionStorage as unknown as { remoteStarts: Map<string, Record<string, unknown>> }).remoteStarts;
 
 type OCPPServiceMock = Record<string, jest.Mock<(...args: any[]) => Promise<any>>>;
 
@@ -325,6 +330,36 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
       chargingStation.connectors = [{ connectorId: 1 }, { connectorId: 2 }];
       await expect(transactionEvent('Started', 0, { idToken })).resolves.toEqual({ idTokenInfo: { status: 'Accepted' } });
       expect(ocppService.handleStartTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should start a remotely started transaction reported without ID Token', async () => {
+      remoteStartStore.set(`${chargingStationID}~2047274519`, { chargingStationID, remoteStartId: 2047274519, tagID: 'TAG1', evseId: 1 });
+      await statusNotification('Occupied');
+      // Only the remoteStartId is sent by the Charging Station
+      await expect(transactionEvent('Started', 0, { evse: { id: 1, connectorId: 1 }, triggerReason: 'RemoteStart',
+        transactionInfo: { remoteStartId: 2047274519, chargingState: 'Charging' }, meterValue: energy(581, 'Transaction.Begin') }))
+        .resolves.toEqual({});
+      expect(ocppService.handleStartTransaction.mock.calls[0][1]).toMatchObject({ connectorId: 1, idTag: 'TAG1', meterStart: 581 });
+      await transactionEvent('Updated', 1, { meterValue: energy(4000) });
+      await transactionEvent('Ended', 2, { transactionInfo: { stoppedReason: 'Remote' }, meterValue: energy(8513, 'Transaction.End') });
+      expect(ocppService.handleStartTransaction).toHaveBeenCalledTimes(1);
+      expect(ocppService.handleStopTransaction.mock.calls[0][1]).toMatchObject({ transactionId: 555, meterStop: 8513, reason: 'Remote' });
+      expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ platformTransactionID: 555, idToken: 'TAG1', idTokenType: 'Central' });
+      expect(statusesSent()).toEqual(['Preparing', 'Charging', 'Finishing']);
+    });
+
+    it('should use the EVSE of the remote start when the Transaction Event does not provide it', async () => {
+      chargingStation.connectors = [{ connectorId: 1 }, { connectorId: 2 }];
+      remoteStartStore.set(`${chargingStationID}~42`, { chargingStationID, remoteStartId: 42, tagID: 'TAG1', evseId: 2 });
+      await transactionEvent('Started', 0, { transactionInfo: { remoteStartId: 42 } });
+      expect(ocppService.handleStartTransaction.mock.calls[0][1]).toMatchObject({ connectorId: 2, idTag: 'TAG1' });
+    });
+
+    it('should wait for an ID Token when the remote start is unknown', async () => {
+      await transactionEvent('Started', 0, { evse: { id: 1 }, transactionInfo: { remoteStartId: 99 }, meterValue: energy(100, 'Transaction.Begin') });
+      expect(ocppService.handleStartTransaction).not.toHaveBeenCalled();
+      await expect(transactionEvent('Updated', 1, { idToken })).resolves.toEqual({ idTokenInfo: { status: 'Accepted' } });
+      expect(ocppService.handleStartTransaction.mock.calls[0][1]).toMatchObject({ idTag: 'TAG1', meterStart: 100 });
     });
 
     it('should restore the ongoing transactions after a server restart', async () => {

@@ -137,6 +137,16 @@ export default class Ocpp201ChargingStationClient extends ChargingStationClient 
     if (params.connectorId > 0) {
       request.evseId = params.connectorId;
     }
+    // Keep the tag before sending: the Charging Station may report the transaction (with the remoteStartId only)
+    // before answering this request
+    await Ocpp201TransactionStorage.saveRemoteStart(this.tenant, {
+      id: Ocpp201TransactionStorage.buildRemoteStartID(this.getChargingStationID(), request.remoteStartId),
+      chargingStationID: this.getChargingStationID(),
+      remoteStartId: request.remoteStartId,
+      tagID: params.idTag,
+      evseId: request.evseId,
+      createdOn: new Date(),
+    });
     const response = await this.send(Ocpp201OutgoingAction.REQUEST_START_TRANSACTION, request);
     return { status: response.status === 'Accepted' ? OCPPRemoteStartStopStatus.ACCEPTED : OCPPRemoteStartStopStatus.REJECTED };
   }

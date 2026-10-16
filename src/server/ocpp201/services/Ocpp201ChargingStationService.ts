@@ -1,5 +1,5 @@
 import { ChargePointErrorCode, ChargePointStatus, OCPPAuthorizationStatus, OCPPAuthorizeRequestExtended, OCPPBootNotificationRequestExtended, OCPPDataTransferRequestExtended, OCPPDiagnosticsStatusNotificationRequestExtended, OCPPFirmwareStatusNotificationRequestExtended, OCPPHeartbeatRequestExtended, OCPPMeterValuesRequestExtended, OCPPProtocol, OCPPStartTransactionRequestExtended, OCPPStatusNotificationRequestExtended, OCPPStopTransactionRequestExtended, OCPPVersion, RegistrationStatus } from '../../../types/ocpp/OCPPServer';
-import { Ocpp201AuthorizationStatus, Ocpp201AuthorizeRequest, Ocpp201AuthorizeResponse, Ocpp201BootNotificationRequest, Ocpp201BootNotificationResponse, Ocpp201ConnectorStatus, Ocpp201DataTransferRequest, Ocpp201DataTransferResponse, Ocpp201DataTransferStatus, Ocpp201ErrorCode, Ocpp201FirmwareStatusNotificationRequest, Ocpp201IdTokenInfo, Ocpp201IncomingAction, Ocpp201LogStatusNotificationRequest, Ocpp201MeterValuesRequest, Ocpp201Payload, Ocpp201RegistrationStatus, Ocpp201StatusNotificationRequest, Ocpp201TransactionEventRequest, Ocpp201TransactionEventResponse, Ocpp201TransactionEventType, Ocpp201TransactionMapping } from '../types/Ocpp201Types';
+import { Ocpp201AuthorizationStatus, Ocpp201AuthorizeRequest, Ocpp201AuthorizeResponse, Ocpp201BootNotificationRequest, Ocpp201BootNotificationResponse, Ocpp201ConnectorStatus, Ocpp201DataTransferRequest, Ocpp201DataTransferResponse, Ocpp201DataTransferStatus, Ocpp201ErrorCode, Ocpp201FirmwareStatusNotificationRequest, Ocpp201IdTokenInfo, Ocpp201IdTokenType, Ocpp201IncomingAction, Ocpp201LogStatusNotificationRequest, Ocpp201MeterValuesRequest, Ocpp201Payload, Ocpp201RegistrationStatus, Ocpp201StatusNotificationRequest, Ocpp201TransactionEventRequest, Ocpp201TransactionEventResponse, Ocpp201TransactionEventType, Ocpp201TransactionMapping } from '../types/Ocpp201Types';
 import { Ocpp201ConnectionIdentity, Ocpp201RequestHandler } from '../Ocpp201Connection';
 
 import ChargingStationStorage from '../../../storage/mongodb/ChargingStationStorage';
@@ -210,6 +210,20 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       };
     }
     this.updateMappingWithTransactionEvent(headers, mapping, transactionEvent);
+    // Transaction started remotely: the Charging Station may only send the remoteStartId, not the ID Token
+    let startTagID = tagID;
+    if (!startTagID && !mapping.platformTransactionID && !mapping.authorizationStatus && !Utils.isNullOrUndefined(mapping.remoteStartId)) {
+      const remoteStart = await Ocpp201TransactionStorage.getRemoteStart(tenant, this.identity.chargingStationID, mapping.remoteStartId);
+      if (remoteStart) {
+        startTagID = remoteStart.tagID;
+        if (Utils.isNullOrUndefined(mapping.evseId) && remoteStart.evseId > 0) {
+          mapping.evseId = remoteStart.evseId;
+        }
+      } else {
+        this.log('warning', ServerAction.WS_SERVER_MESSAGE,
+          `Remote start ID '${mapping.remoteStartId}' of transaction '${transactionId}' is unknown, waiting for an ID Token`, { transactionEvent });
+      }
+    }
     if (Utils.isNullOrUndefined(mapping.evseId)) {
       // The EVSE is mandatory in the first Transaction Event of a transaction
       this.log('error', ServerAction.WS_SERVER_MESSAGE, `Transaction '${transactionId}' cannot be processed: EVSE is unknown`, { transactionEvent });
@@ -220,12 +234,15 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     }
     let idTokenInfo: Ocpp201IdTokenInfo;
     // Start the platform transaction as soon as the user is identified
-    if (!mapping.platformTransactionID && tagID &&
-        !(mapping.authorizationStatus && Ocpp201Mapper.isSameTagID(mapping.idToken, tagID))) {
-      mapping.idToken = tagID;
-      mapping.idTokenType = transactionEvent.idToken.type;
+    if (!mapping.platformTransactionID && startTagID &&
+        !(mapping.authorizationStatus && Ocpp201Mapper.isSameTagID(mapping.idToken, startTagID))) {
+      mapping.idToken = startTagID;
+      mapping.idTokenType = transactionEvent.idToken?.type ?? Ocpp201IdTokenType.CENTRAL;
       mapping.authorizationStatus = await this.startPlatformTransaction(headers, mapping);
-      idTokenInfo = { status: mapping.authorizationStatus };
+      // The ID Token Info is only returned for the ID Token of the request
+      if (transactionEvent.idToken) {
+        idTokenInfo = { status: mapping.authorizationStatus };
+      }
       // Keep the link with the platform transaction right away
       await Ocpp201TransactionStorage.saveMapping(tenant, mapping);
     } else if (transactionEvent.idToken) {

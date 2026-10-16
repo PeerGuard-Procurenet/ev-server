@@ -369,6 +369,19 @@ export interface Ocpp201SetVariablesResponse {
 }
 
 // --------------------------------------------------------------------------
+// Remote start sent by the CSMS: the Charging Station identifies the resulting transaction with
+// the remoteStartId and does not always send back the ID Token in its Transaction Events
+// --------------------------------------------------------------------------
+export interface Ocpp201RemoteStart {
+  id: string; // '<chargingStationID>~<remoteStartId>'
+  chargingStationID: string;
+  remoteStartId: number;
+  tagID: string;
+  evseId?: number;
+  createdOn: Date;
+}
+
+// --------------------------------------------------------------------------
 // Persisted mapping between an OCPP 2.0.1 transaction and the platform transaction
 // --------------------------------------------------------------------------
 export interface Ocpp201TransactionMapping {

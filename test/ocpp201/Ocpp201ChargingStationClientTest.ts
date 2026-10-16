@@ -24,7 +24,11 @@ jest.mock('../../src/utils/Configuration', () => ({
 }));
 jest.mock('../../src/server/ocpp201/storage/Ocpp201TransactionStorage', () => ({
   __esModule: true,
-  default: { getMappingByPlatformTransactionID: jest.fn() },
+  default: {
+    getMappingByPlatformTransactionID: jest.fn(),
+    saveRemoteStart: jest.fn(async () => Promise.resolve()),
+    buildRemoteStartID: (chargingStationID: string, remoteStartId: number) => `${chargingStationID}~${remoteStartId}`,
+  },
 }));
 
 type Responder = (action: string, payload: Ocpp201Payload) => Ocpp201Payload | { error: string };
@@ -98,6 +102,11 @@ describe('OCPP 2.0.1 Charging Station client (platform commands)', () => {
     expect(action).toBe('RequestStartTransaction');
     expect(payload).toEqual({ idToken: { idToken: 'TAG1', type: 'Central' }, remoteStartId: expect.any(Number), evseId: 2 });
     expect(Number.isInteger(payload.remoteStartId) && payload.remoteStartId > 0).toBe(true);
+    // The tag is kept to identify the transaction reported with the remoteStartId only
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    expect(Ocpp201TransactionStorage.saveRemoteStart).toHaveBeenCalledWith({ id: TENANT_ID }, {
+      id: `${chargingStationID}~${payload.remoteStartId as number}`, chargingStationID, remoteStartId: payload.remoteStartId,
+      tagID: 'TAG1', evseId: 2, createdOn: expect.any(Date) });
     station.responder = () => ({ status: 'Rejected' });
     await expect(client.remoteStartTransaction({ connectorId: 0, idTag: 'TAG1', chargingProfile: {} as any })).resolves.toEqual({ status: 'Rejected' });
     expect(station.requests[1].payload.evseId).toBeUndefined();
