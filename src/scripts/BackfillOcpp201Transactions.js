@@ -1,9 +1,10 @@
 require('dotenv').config();
 
 const { MongoClient } = require('mongodb');
+const crypto = require('crypto');
 const tzlookup = require('tz-lookup');
 
-// Creates the platform transactions of OCPP 2.0.1 sessions that ended without being linked to a platform transaction
+// Creates the platform transactions (and their consumptions) of OCPP 2.0.1 sessions that ended without being linked to a platform transaction
 // (sessions started remotely before the remoteStartId fix). Records only: no pricing, billing or roaming CDR.
 //
 // Usage:
@@ -50,16 +51,43 @@ async function findTagOfRemoteStart(database, mapping) {
     message: "<< 'RequestStartTransaction' sent",
   }).sort({ timestamp: -1 }).toArray();
   for (const log of logs) {
-    for (const detailedMessage of log.detailedMessages || []) {
-      let parsed;
-      try {
-        parsed = typeof detailedMessage === 'string' ? JSON.parse(detailedMessage) : detailedMessage;
-      } catch (error) {
-        continue;
+    const tagID = findTagInDetailedMessages(log.detailedMessages, mapping.remoteStartId);
+    if (tagID) {
+      return tagID;
+    }
+  }
+  return null;
+}
+
+// Detailed messages are stored as one JSON string (of an array of objects): search any structure
+function findTagInDetailedMessages(detailedMessages, remoteStartId, depth = 0) {
+  if (!detailedMessages || depth > 10) {
+    return null;
+  }
+  if (typeof detailedMessages === 'string') {
+    try {
+      return findTagInDetailedMessages(JSON.parse(detailedMessages), remoteStartId, depth + 1);
+    } catch (error) {
+      return null;
+    }
+  }
+  if (Array.isArray(detailedMessages)) {
+    for (const item of detailedMessages) {
+      const tagID = findTagInDetailedMessages(item, remoteStartId, depth + 1);
+      if (tagID) {
+        return tagID;
       }
-      const payload = parsed?.payload;
-      if (payload?.remoteStartId === mapping.remoteStartId && payload?.idToken?.idToken) {
-        return payload.idToken.idToken;
+    }
+    return null;
+  }
+  if (typeof detailedMessages === 'object') {
+    if (detailedMessages.remoteStartId === remoteStartId && detailedMessages.idToken?.idToken) {
+      return detailedMessages.idToken.idToken;
+    }
+    for (const value of Object.values(detailedMessages)) {
+      const tagID = findTagInDetailedMessages(value, remoteStartId, depth + 1);
+      if (tagID) {
+        return tagID;
       }
     }
   }
@@ -128,6 +156,77 @@ function buildTransaction(id, mapping, chargingStation, tag) {
   };
 }
 
+// Only the start and end readings are known: a first consumption at the start (as the platform does)
+// and one consumption covering the whole session (see ConsumptionStorage.buildConsumptionMDB)
+function buildConsumptions(transaction) {
+  const start = transaction.timestamp;
+  const end = transaction.stop.timestamp;
+  const totalWh = transaction.stop.totalConsumptionWh;
+  const durationSecs = transaction.stop.totalDurationSecs;
+  const consumptionID = (date) => crypto.createHash('sha256').update(`${transaction._id}~${date.toISOString()}`).digest('hex');
+  const base = {
+    transactionId: transaction._id,
+    chargeBoxID: transaction.chargeBoxID,
+    connectorId: transaction.connectorId,
+    siteAreaID: transaction.siteAreaID,
+    siteID: transaction.siteID,
+    assetID: null,
+    userID: transaction.userID,
+    consumptionAmps: 0,
+    cumulatedAmount: 0,
+    cumulatedConsumptionAmps: 0,
+    amount: 0,
+    roundedAmount: 0,
+    instantWattsL1: 0,
+    instantWattsL2: 0,
+    instantWattsL3: 0,
+    instantWattsDC: 0,
+    instantAmps: 0,
+    instantAmpsL1: 0,
+    instantAmpsL2: 0,
+    instantAmpsL3: 0,
+    instantAmpsDC: 0,
+    instantVolts: 0,
+    instantVoltsL1: 0,
+    instantVoltsL2: 0,
+    instantVoltsL3: 0,
+    instantVoltsDC: 0,
+    inactivitySecs: 0,
+    totalInactivitySecs: 0,
+    stateOfCharge: null,
+    limitAmps: 0,
+    limitWatts: 0,
+    smartChargingActive: false,
+    limitSiteAreaWatts: null,
+    limitSiteAreaAmps: null,
+    limitSiteAreaSource: null,
+  };
+  const consumptions = [{
+    ...base,
+    _id: consumptionID(start),
+    startedAt: start,
+    endedAt: start,
+    consumptionWh: 0,
+    cumulatedConsumptionWh: 0,
+    instantWatts: 0,
+    totalDurationSecs: 0,
+  }];
+  if (end.getTime() > start.getTime()) {
+    consumptions.push({
+      ...base,
+      _id: consumptionID(end),
+      startedAt: start,
+      endedAt: end,
+      consumptionWh: totalWh,
+      cumulatedConsumptionWh: totalWh,
+      // Average power over the session
+      instantWatts: durationSecs > 0 ? Math.round(totalWh * 3600 / durationSecs) : 0,
+      totalDurationSecs: durationSecs,
+    });
+  }
+  return consumptions;
+}
+
 async function rollback(database) {
   const transactions = database.collection(`${TENANT_ID}.transactions`);
   const backfilled = await transactions.find({ migrationTag: MIGRATION_TAG }, { projection: { _id: 1 } }).toArray();
@@ -139,6 +238,7 @@ async function rollback(database) {
   await database.collection(`${TENANT_ID}.ocpp201transactions`).updateMany(
     { platformTransactionID: { $in: ids }, backfilledOn: { $exists: true } },
     { $unset: { platformTransactionID: '', idToken: '', idTokenType: '', authorizationStatus: '', backfilledOn: '' } });
+  await database.collection(`${TENANT_ID}.consumptions`).deleteMany({ transactionId: { $in: ids } });
   await transactions.deleteMany({ _id: { $in: ids }, migrationTag: MIGRATION_TAG });
   console.log('Rollback done');
 }
@@ -210,11 +310,13 @@ async function backfill() {
       }
       const id = await findAvailableTransactionID(transactions);
       const transaction = buildTransaction(id, mapping, chargingStation, tag);
+      const consumptions = buildConsumptions(transaction);
       console.log(`${options.execute ? 'CREATED ' : 'TO CREATE'} ${label}: transaction ID ${id}, tag '${tagID}' (user ${String(tag.userID)}), ` +
         `${transaction.timestamp.toISOString()} -> ${transaction.stop.timestamp.toISOString()}, ` +
-        `${(transaction.stop.totalConsumptionWh / 1000).toFixed(3)} kWh`);
+        `${(transaction.stop.totalConsumptionWh / 1000).toFixed(3)} kWh, ${consumptions.length} consumption(s)`);
       if (options.execute) {
         await transactions.insertOne(transaction);
+        await database.collection(`${TENANT_ID}.consumptions`).insertMany(consumptions);
         await mappingsCollection.updateOne({ _id: mapping._id }, {
           $set: { platformTransactionID: id, idToken: tagID, idTokenType: mapping.idTokenType || 'Central', authorizationStatus: 'Accepted', backfilledOn: new Date() }
         });

@@ -873,6 +873,10 @@ export default class OCPPService {
       }
       // Enrich Charging Station's Connector
       await OCPPUtils.enrichChargingStationConnectorWithTemplate(tenant, chargingStation, connector);
+      // Current type not provided by a Template: use the default one
+      if (!Utils.getChargingStationCurrentType(chargingStation, null, connector.connectorId)) {
+        connector.currentType = this.chargingStationConfig.defaultCurrentType;
+      }
     // Same Status Notification?
     } else if (Utils.objectAllPropertiesAreEqual(statusNotification, connector, ['status', 'info', 'errorCode', 'vendorErrorCode'])) {
       ignoreStatusNotification = true;
@@ -1110,7 +1114,7 @@ export default class OCPPService {
         // Set only the last Voltage (will be used in the last consumption building in StopTransaction due to backward compat with OCPP 1.5)
         if (meterValue.attribute.context === OCPPReadingContext.TRANSACTION_END) {
           const voltage = Utils.convertToFloat(meterValue.value);
-          const currentType = Utils.getChargingStationCurrentType(chargingStation, null, transaction.connectorId);
+          const currentType = OCPPUtils.getMeterValuesCurrentType(chargingStation, transaction.connectorId);
           // AC Charging Station
           switch (currentType) {
             case CurrentType.DC:
@@ -1151,7 +1155,7 @@ export default class OCPPService {
           const powerInMeterValue = Utils.convertToFloat(meterValue.value);
           const powerInMeterValueWatts = (meterValue.attribute && meterValue.attribute.unit === OCPPUnitOfMeasure.KILO_WATT ?
             powerInMeterValue * 1000 : powerInMeterValue);
-          const currentType = Utils.getChargingStationCurrentType(chargingStation, null, transaction.connectorId);
+          const currentType = OCPPUtils.getMeterValuesCurrentType(chargingStation, transaction.connectorId);
           // AC Charging Station
           switch (currentType) {
             case CurrentType.DC:
@@ -1185,7 +1189,7 @@ export default class OCPPService {
         // Set only the last Current (will be used in the last consumption building in StopTransaction due to backward compat with OCPP 1.5)
         if (meterValue.attribute.context === OCPPReadingContext.TRANSACTION_END) {
           const amperage = Utils.convertToFloat(meterValue.value);
-          const currentType = Utils.getChargingStationCurrentType(chargingStation, null, transaction.connectorId);
+          const currentType = OCPPUtils.getMeterValuesCurrentType(chargingStation, transaction.connectorId);
           // AC Charging Station
           switch (currentType) {
             case CurrentType.DC:

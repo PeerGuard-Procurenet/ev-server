@@ -1,3 +1,5 @@
+import { CurrentType } from '../ChargingStation';
+
 export default interface ChargingStationConfiguration {
   heartbeatIntervalOCPPSSecs: number;
   heartbeatIntervalOCPPJSecs: number;
@@ -12,4 +14,6 @@ export default interface ChargingStationConfiguration {
   useServerLocalIPForRemoteCommand?: boolean;
   secureLocalServer?: boolean;
   maxLastSeenIntervalSecs: number;
+  // Current type of the connectors whose current type is not provided by a template
+  defaultCurrentType?: CurrentType;
 }

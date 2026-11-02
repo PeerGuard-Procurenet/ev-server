@@ -626,6 +626,10 @@
         },
         "maxLastSeenIntervalSecs": {
           "type": "integer"
+        },
+        "defaultCurrentType": {
+          "type": "string",
+          "enum": ["AC", "DC"]
         }
       },
       "required": [

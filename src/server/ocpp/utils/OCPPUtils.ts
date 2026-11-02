@@ -10,6 +10,7 @@ import BackendError from '../../../exception/BackendError';
 import BillingFactory from '../../../integration/billing/BillingFactory';
 import ChargingStationStorage from '../../../storage/mongodb/ChargingStationStorage';
 import ChargingStationVendorFactory from '../../../integration/charging-station-vendor/ChargingStationVendorFactory';
+import Configuration from '../../../utils/Configuration';
 import Constants from '../../../utils/Constants';
 import Consumption from '../../../types/Consumption';
 import ConsumptionStorage from '../../../storage/mongodb/ConsumptionStorage';
@@ -138,7 +139,28 @@ export default class OCPPUtils {
     return null;
   }
 
+  // Current type used to process the meter values of a connector: when it is not known (no template), the default one is used
+  // so that the measured Voltage, Current and Power are never dropped
+  public static getMeterValuesCurrentType(chargingStation: ChargingStation, connectorID: number): CurrentType {
+    return Utils.getChargingStationCurrentType(chargingStation, null, connectorID) ??
+      Configuration.getChargingStationConfig()?.defaultCurrentType;
+  }
+
   public static assertConsistencyInConsumption(chargingStation: ChargingStation, connectorID: number, consumption: Consumption): void {
+    // DC Power not provided in Meter Value
+    if (!consumption.instantWattsDC && consumption.instantAmpsDC > 0 && consumption.instantVoltsDC > 0) {
+      consumption.instantWattsDC = Utils.createDecimal(consumption.instantAmpsDC).mul(consumption.instantVoltsDC).toNumber();
+    }
+    // DC: the measured values are the totals of the connector (instead of values estimated from the consumption)
+    if (consumption.instantWattsDC > 0 && !consumption.instantWatts) {
+      consumption.instantWatts = consumption.instantWattsDC;
+    }
+    if (consumption.instantAmpsDC > 0 && !consumption.instantAmps) {
+      consumption.instantAmps = consumption.instantAmpsDC;
+    }
+    if (consumption.instantVoltsDC > 0 && !consumption.instantVolts) {
+      consumption.instantVolts = consumption.instantVoltsDC;
+    }
     // Check Total Power with Meter Value Power L1, L2, L3
     if (consumption.instantWattsL1 > 0 || consumption.instantWattsL2 > 0 || consumption.instantWattsL3 > 0) {
       consumption.instantWattsL1 = Utils.convertToFloat(consumption.instantWattsL1);
@@ -218,10 +240,6 @@ export default class OCPPUtils {
       } else {
         consumption.instantWattsL3 = Utils.convertAmpToWatt(chargingStation, null, connectorID, consumption.instantAmpsL3);
       }
-    }
-    // Fill Power per Phase
-    if (!consumption.instantWattsDC && consumption.instantAmpsDC > 0 && consumption.instantVoltsDC > 0) {
-      consumption.instantWattsDC = Utils.createDecimal(consumption.instantAmpsDC).mul(consumption.instantVoltsDC).toNumber();
     }
   }
 
@@ -567,7 +585,7 @@ export default class OCPPUtils {
         const powerInMeterValue = Utils.convertToFloat(meterValue.value);
         const powerInMeterValueWatts = meterValue.attribute?.unit === OCPPUnitOfMeasure.KILO_WATT ?
           Utils.createDecimal(powerInMeterValue).mul(1000).toNumber() : powerInMeterValue;
-        const currentType = Utils.getChargingStationCurrentType(chargingStation, null, transaction.connectorId);
+        const currentType = OCPPUtils.getMeterValuesCurrentType(chargingStation, transaction.connectorId);
         switch (currentType) {
           case CurrentType.DC:
             consumption.instantWattsDC = powerInMeterValueWatts;
@@ -595,7 +613,7 @@ export default class OCPPUtils {
       // Handle Voltage (V)
       } else if (OCPPUtils.isVoltageMeterValue(meterValue)) {
         const voltage = Utils.convertToFloat(meterValue.value);
-        const currentType = Utils.getChargingStationCurrentType(chargingStation, null, transaction.connectorId);
+        const currentType = OCPPUtils.getMeterValuesCurrentType(chargingStation, transaction.connectorId);
         switch (currentType) {
           case CurrentType.DC:
             consumption.instantVoltsDC = voltage;
@@ -628,7 +646,7 @@ export default class OCPPUtils {
       // Handle Current (A)
       } else if (OCPPUtils.isCurrentImportMeterValue(meterValue)) {
         const amperage = Utils.convertToFloat(meterValue.value);
-        const currentType = Utils.getChargingStationCurrentType(chargingStation, null, transaction.connectorId);
+        const currentType = OCPPUtils.getMeterValuesCurrentType(chargingStation, transaction.connectorId);
         switch (currentType) {
           case CurrentType.DC:
             consumption.instantAmpsDC = amperage;

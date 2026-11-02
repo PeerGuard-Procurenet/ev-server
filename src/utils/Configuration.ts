@@ -12,6 +12,7 @@ import ConfigurationValidatorStorage from '../storage/validator/ConfigurationVal
 import ShieldConfiguration from '../types/configuration/RateLimiterConfiguration';
 import Constants from './Constants';
 import CryptoConfiguration from '../types/configuration/CryptoConfiguration';
+import { CurrentType } from '../types/ChargingStation';
 import EVDatabaseConfiguration from '../types/configuration/EVDatabaseConfiguration';
 import EmailConfiguration from '../types/configuration/EmailConfiguration';
 import FirebaseConfiguration from '../types/configuration/FirebaseConfiguration';
@@ -226,6 +227,10 @@ export default class Configuration {
       }
       if (Configuration.isUndefined('ChargingStation.monitoringIntervalOCPPJSecs', chargingStationConfiguration.monitoringIntervalOCPPJSecs)) {
         chargingStationConfiguration.monitoringIntervalOCPPJSecs = 600;
+      }
+      // The charging stations of the network are DC charging stations
+      if (Configuration.isUndefined('ChargingStation.defaultCurrentType', chargingStationConfiguration.defaultCurrentType)) {
+        chargingStationConfiguration.defaultCurrentType = CurrentType.DC;
       }
     }
     return chargingStationConfiguration;
