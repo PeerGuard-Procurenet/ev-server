@@ -1185,11 +1185,13 @@ export default class Utils {
     return process.env.NODE_ENV === 'test';
   }
 
+  // Timezone of the location, or the default timezone of the network when the location is not set
   public static getTimezone(coordinates: number[]): string {
-    if (coordinates && coordinates.length === 2) {
+    // [0, 0] is not a real location (unset coordinates)
+    if (coordinates && coordinates.length === 2 && (coordinates[0] !== 0 || coordinates[1] !== 0)) {
       return tzlookup(coordinates[1], coordinates[0]);
     }
-    return null;
+    return Configuration.getChargingStationConfig()?.defaultTimezone ?? null;
   }
 
   public static getTenantActiveComponents(tenant: Tenant): string[] {

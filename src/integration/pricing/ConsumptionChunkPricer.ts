@@ -4,6 +4,8 @@ import { DimensionType, PricedConsumptionData, PricedDimensionData, PricingDimen
 import PricingTimeLimit from './simple-pricing/PricingTimeLimit';
 import Utils from '../../utils/Utils';
 import moment from 'moment';
+// Adds the timezone support (moment().tz())
+import 'moment-timezone';
 
 export default class ConsumptionChunkPricer {
   private consumptionPricer: ConsumptionPricer;

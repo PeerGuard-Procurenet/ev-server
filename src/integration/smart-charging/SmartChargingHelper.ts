@@ -6,7 +6,9 @@ import SettingStorage from '../../storage/mongodb/SettingStorage';
 import { SmartChargingRuntimeSessionParameters } from '../../types/Transaction';
 import UserToken from '../../types/UserToken';
 import Utils from '../../utils/Utils';
-import moment from 'moment'; // moment-timezone?
+import moment from 'moment';
+// Adds the timezone support (moment().tz())
+import 'moment-timezone';
 
 export default class SmartChargingHelper {
 

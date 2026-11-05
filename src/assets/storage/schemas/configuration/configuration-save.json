@@ -630,6 +630,9 @@
         "defaultCurrentType": {
           "type": "string",
           "enum": ["AC", "DC"]
+        },
+        "defaultTimezone": {
+          "type": "string"
         }
       },
       "required": [

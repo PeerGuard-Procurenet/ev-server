@@ -1,3 +1,5 @@
+// Adds the timezone support (moment().tz()) used to format the dates
+import 'moment-timezone';
 // Get the supported locales for moment
 import 'moment/locale/fr';
 import 'moment/locale/de';

@@ -232,6 +232,10 @@ export default class Configuration {
       if (Configuration.isUndefined('ChargingStation.defaultCurrentType', chargingStationConfiguration.defaultCurrentType)) {
         chargingStationConfiguration.defaultCurrentType = CurrentType.DC;
       }
+      // The charging stations of the network are in Nigeria (West Africa Time)
+      if (Configuration.isUndefined('ChargingStation.defaultTimezone', chargingStationConfiguration.defaultTimezone)) {
+        chargingStationConfiguration.defaultTimezone = 'Africa/Lagos';
+      }
     }
     return chargingStationConfiguration;
   }

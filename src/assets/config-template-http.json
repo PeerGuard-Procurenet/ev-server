@@ -141,7 +141,8 @@
     "notifEndOfChargeEnabled": true,
     "notifStopTransactionAndUnlockConnector": false,
     "maxLastSeenIntervalSecs": 540,
-    "defaultCurrentType": "DC"
+    "defaultCurrentType": "DC",
+    "defaultTimezone": "Africa/Lagos"
   },
   "Migration": {
     "active": true
