@@ -98,6 +98,13 @@ export const OCPP201_STANDARD_CONFIGURATION_VARIABLES: Ocpp201ComponentVariable[
   { component: { name: 'AlignedDataCtrlr' }, variable: { name: 'TxEndedInterval' } },
   { component: { name: 'ClockCtrlr' }, variable: { name: 'DateTime' } },
   { component: { name: 'ClockCtrlr' }, variable: { name: 'TimeSource' } },
+  // Optional clock variables: only reported when supported by the Charging Station
+  { component: { name: 'ClockCtrlr' }, variable: { name: 'TimeOffset' } },
+  { component: { name: 'ClockCtrlr' }, variable: { name: 'TimeZone' } },
+  { component: { name: 'ClockCtrlr' }, variable: { name: 'NextTimeOffsetTransitionDateTime' } },
+  { component: { name: 'ClockCtrlr' }, variable: { name: 'NtpSource' } },
+  { component: { name: 'ClockCtrlr' }, variable: { name: 'NtpServerUri' } },
+  { component: { name: 'ClockCtrlr' }, variable: { name: 'TimeAdjustmentReportingThreshold' } },
 ];
 
 const isNil = (value: unknown): boolean => value === null || typeof value === 'undefined';
