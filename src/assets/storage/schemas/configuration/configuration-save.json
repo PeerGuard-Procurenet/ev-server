@@ -633,6 +633,9 @@
         },
         "defaultTimezone": {
           "type": "string"
+        },
+        "setLocalTimeOnChargingStations": {
+          "type": "boolean"
         }
       },
       "required": [

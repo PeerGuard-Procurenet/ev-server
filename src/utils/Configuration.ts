@@ -236,6 +236,9 @@ export default class Configuration {
       if (Configuration.isUndefined('ChargingStation.defaultTimezone', chargingStationConfiguration.defaultTimezone)) {
         chargingStationConfiguration.defaultTimezone = 'Africa/Lagos';
       }
+      if (Configuration.isUndefined('ChargingStation.setLocalTimeOnChargingStations', chargingStationConfiguration.setLocalTimeOnChargingStations)) {
+        chargingStationConfiguration.setLocalTimeOnChargingStations = true;
+      }
     }
     return chargingStationConfiguration;
   }

@@ -142,7 +142,8 @@
     "notifStopTransactionAndUnlockConnector": false,
     "maxLastSeenIntervalSecs": 540,
     "defaultCurrentType": "DC",
-    "defaultTimezone": "Africa/Lagos"
+    "defaultTimezone": "Africa/Lagos",
+    "setLocalTimeOnChargingStations": true
   },
   "Migration": {
     "active": true

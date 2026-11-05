@@ -465,13 +465,21 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
       let queueStatuses: boolean[];
       let transactionStatuses: Record<string, Ocpp201Payload>;
 
+      // The clock of the Charging Station is checked too: only the transaction status requests are considered
+      const transactionStatusRequests = () => channel.sendRequest.mock.calls.filter((call) => call[0] === 'GetTransactionStatus').map((call) => call[1]);
+
       beforeEach(() => {
         queueStatuses = [false];
         transactionStatuses = {};
         channel = {
           isClosed: jest.fn(() => false),
-          sendRequest: jest.fn(async (action: string, payload: Ocpp201Payload) => Promise.resolve(payload.transactionId ?
-            transactionStatuses[payload.transactionId as string] : { messagesInQueue: queueStatuses.shift() ?? false })),
+          sendRequest: jest.fn(async (action: string, payload: Ocpp201Payload) => {
+            if (action === 'TriggerMessage') {
+              return Promise.resolve({ status: 'Accepted' });
+            }
+            return Promise.resolve(payload.transactionId ?
+              transactionStatuses[payload.transactionId as string] : { messagesInQueue: queueStatuses.shift() ?? false });
+          }),
           runAfterReceivedRequests: jest.fn(async (task: () => Promise<unknown>) => task()),
         };
         service = new Ocpp201ChargingStationService({ tenantID: TENANT_ID, tokenID: 'token', chargingStationID, clientIP: '10.0.0.1' },
@@ -484,7 +492,7 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
         transactionStatuses = { 'TX-1': { ongoingIndicator: false, messagesInQueue: false }, 'TX-2': { ongoingIndicator: true, messagesInQueue: false } };
         queueStatuses = [true, false];
         await service.reconcileTransactionsAfterBoot('PowerUp');
-        expect(channel.sendRequest.mock.calls.map((call) => call[1])).toEqual([{}, {}, { transactionId: 'TX-1' }, { transactionId: 'TX-2' }]);
+        expect(transactionStatusRequests()).toEqual([{}, {}, { transactionId: 'TX-1' }, { transactionId: 'TX-2' }]);
         expect(ocppService.handleStopTransaction).toHaveBeenCalledTimes(1);
         expect(ocppService.handleStopTransaction.mock.calls[0][1]).toEqual(
           { transactionId: 555, idTag: 'TAG1', meterStop: 1534, timestamp: '2024-10-12T10:11:00.000Z', reason: 'PowerLoss' });
@@ -509,8 +517,17 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
         await transactionEvent('Started', 0, { idToken, evse: { id: 1 } });
         queueStatuses = new Array<boolean>(20).fill(true);
         await service.reconcileTransactionsAfterBoot('PowerUp');
-        expect(channel.sendRequest).toHaveBeenCalledTimes(10);
+        expect(transactionStatusRequests()).toHaveLength(10);
         expect(ocppService.handleStopTransaction).not.toHaveBeenCalled();
+      });
+
+      it('should check the clock of the Charging Station with the messages that are not stored offline', async () => {
+        const triggerRequests = () => channel.sendRequest.mock.calls.filter((call) => call[0] === 'TriggerMessage');
+        // The timestamps of the test messages are 2 years old
+        await transactionEvent('Started', 0, { offline: true, idToken, evse: { id: 1 } });
+        expect(triggerRequests()).toHaveLength(0);
+        await statusNotification('Occupied');
+        expect(triggerRequests()).toEqual([['TriggerMessage', { requestedMessage: 'Heartbeat' }]]);
       });
 
       it('should check the transactions after an accepted boot only', async () => {
@@ -523,7 +540,6 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
           await handle(Ocpp201IncomingAction.BOOT_NOTIFICATION, { chargingStation: { vendorName: 'F', model: 'M' }, reason: 'PowerUp' });
           expect(channel.sendRequest).not.toHaveBeenCalled();
           jest.runOnlyPendingTimers();
-          expect(channel.sendRequest).toHaveBeenCalledWith('GetTransactionStatus', {});
         } finally {
           jest.useRealTimers();
         }
@@ -531,6 +547,7 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
         for (let i = 0; i < 10; i++) {
           await new Promise((resolve) => setImmediate(resolve));
         }
+        expect(channel.sendRequest).toHaveBeenCalledWith('GetTransactionStatus', {});
       });
     });
   });

@@ -18,4 +18,6 @@ export default interface ChargingStationConfiguration {
   defaultCurrentType?: CurrentType;
   // IANA timezone of the charging stations whose location is not set (e.g. 'Africa/Lagos')
   defaultTimezone?: string;
+  // Set the local time displayed by the OCPP 2.0.1 charging stations (timezone of their location) after their boot
+  setLocalTimeOnChargingStations?: boolean;
 }

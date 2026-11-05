@@ -7,6 +7,7 @@ import Configuration from '../../../utils/Configuration';
 import { OCPPHeader } from '../../../types/ocpp/OCPPHeader';
 import OCPPService from '../../ocpp/services/OCPPService';
 import OCPPUtils from '../../ocpp/utils/OCPPUtils';
+import Ocpp201ClockSynchronizer from './Ocpp201ClockSynchronizer';
 import Ocpp201Error from '../Ocpp201Error';
 import Ocpp201EvseStateManager from '../mapping/Ocpp201EvseStateManager';
 import Ocpp201Logger from '../Ocpp201Logger';
@@ -22,7 +23,7 @@ const MODULE_NAME = 'Ocpp201ChargingStationService';
 const TRANSACTION_BEGIN = 'Transaction.Begin';
 
 // After a boot, the Charging Station first delivers the transaction messages it has queued while it was offline:
-// the ongoing transactions are checked once its queue is empty
+// the local time is set and the ongoing transactions are checked after this delay (once its queue is empty for the transactions)
 const RECONCILIATION_DELAY_MILLIS = 30 * 1000;
 const RECONCILIATION_MAX_QUEUE_CHECKS = 10;
 
@@ -31,17 +32,19 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
   private readonly identity: Ocpp201ConnectionIdentity;
   private readonly ocppService: OCPPService;
   private readonly channel: Ocpp201RequestChannel | null;
+  private readonly clockSynchronizer: Ocpp201ClockSynchronizer;
   private readonly reconciliationDelayMillis: number;
   private bootRejected = false;
   private evseStatesRestored = false;
   private lastSeenUpdatedOn: number = null;
-  private reconciliationTimer: NodeJS.Timeout = null;
+  private afterBootTimer: NodeJS.Timeout = null;
 
   public constructor(identity: Ocpp201ConnectionIdentity, ocppService: OCPPService, channel: Ocpp201RequestChannel = null,
       reconciliationDelayMillis = RECONCILIATION_DELAY_MILLIS) {
     this.identity = identity;
     this.ocppService = ocppService;
     this.channel = channel;
+    this.clockSynchronizer = new Ocpp201ClockSynchronizer(identity, channel);
     this.reconciliationDelayMillis = reconciliationDelayMillis;
   }
 
@@ -189,7 +192,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       this.evseStatesRestored = false;
     }
     if (result.status === RegistrationStatus.ACCEPTED) {
-      this.scheduleTransactionsReconciliation(bootNotification.reason);
+      this.scheduleAfterBootTasks(bootNotification.reason, Utils.getTimezone(headers.chargingStation?.coordinates));
     }
     this.log('info', ServerAction.OCPP_BOOT_NOTIFICATION, `Boot Notification (reason '${bootNotification.reason}') has been answered with status '${result.status}'`,
       { bootNotification });
@@ -211,6 +214,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
   // ------------------------------------------------------------------------
   private async handleStatusNotification(statusNotification: Ocpp201StatusNotificationRequest): Promise<Ocpp201Payload> {
     const headers = await this.buildHeaders(ServerAction.OCPP_STATUS_NOTIFICATION);
+    this.clockSynchronizer.checkMessageTimestamp(Ocpp201IncomingAction.STATUS_NOTIFICATION, statusNotification.timestamp);
     if (statusNotification.evseId <= 0) {
       this.log('info', ServerAction.OCPP_STATUS_NOTIFICATION,
         `Status '${statusNotification.connectorStatus}' of EVSE ID '${statusNotification.evseId}' is ignored`, { statusNotification });
@@ -250,6 +254,10 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
   private async handleTransactionEvent(transactionEvent: Ocpp201TransactionEventRequest): Promise<Ocpp201TransactionEventResponse> {
     const headers = await this.buildHeaders(ServerAction.WS_SERVER_MESSAGE);
     const tenant = headers.tenant;
+    // Events stored while offline are legitimately late
+    if (!transactionEvent.offline) {
+      this.clockSynchronizer.checkMessageTimestamp(Ocpp201IncomingAction.TRANSACTION_EVENT, transactionEvent.timestamp);
+    }
     await this.restoreEvseStates(tenant);
     const transactionId = transactionEvent.transactionInfo.transactionId;
     const tagID = transactionEvent.idToken ? Ocpp201Mapper.getPlatformTagID(transactionEvent.idToken) : null;
@@ -575,21 +583,32 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       `${mapping.platformTransactionID ? `: transaction ID '${mapping.platformTransactionID}' stopped with meter '${meterStop}' Wh at '${stopTimestamp.toISOString()}' (reason '${reason}')` : ''}`);
   }
 
-  private scheduleTransactionsReconciliation(bootReason: string): void {
+  private scheduleAfterBootTasks(bootReason: string, timezone: string): void {
     if (!this.channel) {
       return;
     }
-    if (this.reconciliationTimer) {
-      clearTimeout(this.reconciliationTimer);
+    if (this.afterBootTimer) {
+      clearTimeout(this.afterBootTimer);
     }
-    this.reconciliationTimer = setTimeout(() => {
-      this.reconciliationTimer = null;
-      this.reconcileTransactionsAfterBoot(bootReason).catch((error) => {
-        this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Ongoing transactions cannot be checked after the boot: ${(error as Error)?.message}`);
-      });
+    this.afterBootTimer = setTimeout(() => {
+      this.afterBootTimer = null;
+      void this.runAfterBootTasks(bootReason, timezone);
     }, this.reconciliationDelayMillis);
     // Never keep the process alive
-    this.reconciliationTimer.unref?.();
+    this.afterBootTimer.unref?.();
+  }
+
+  private async runAfterBootTasks(bootReason: string, timezone: string): Promise<void> {
+    try {
+      await this.clockSynchronizer.configureLocalTime(timezone);
+    } catch (error) {
+      this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Local time cannot be set after the boot: ${(error as Error)?.message}`);
+    }
+    try {
+      await this.reconcileTransactionsAfterBoot(bootReason);
+    } catch (error) {
+      this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Ongoing transactions cannot be checked after the boot: ${(error as Error)?.message}`);
+    }
   }
 
   // Meter values sent outside of a transaction
