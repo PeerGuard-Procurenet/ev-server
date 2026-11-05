@@ -31,7 +31,7 @@ export interface Ocpp201ServerDependencies {
   // Check the tenant, token and charging station of a new connection (throws if not allowed)
   authenticate: (identity: Ocpp201ConnectionIdentity) => Promise<void>;
   // Create the handler of the requests sent by the charging station
-  createRequestHandler: (identity: Ocpp201ConnectionIdentity) => Ocpp201RequestHandler;
+  createRequestHandler: (identity: Ocpp201ConnectionIdentity, connection: Ocpp201Connection) => Ocpp201RequestHandler;
 }
 
 interface Ocpp201WebSocket extends uWS.WebSocket {
@@ -56,8 +56,8 @@ export default class Ocpp201Server extends OCPPServer {
         await OCPPUtils.checkAndGetChargingStationConnectionData(ServerAction.WS_SERVER_CONNECTION,
           identity.tenantID, identity.chargingStationID, identity.tokenID);
       }),
-      createRequestHandler: dependencies?.createRequestHandler ?? ((identity) =>
-        new Ocpp201ChargingStationService(identity, this.getChargingStationService(OCPPVersion.VERSION_201))),
+      createRequestHandler: dependencies?.createRequestHandler ?? ((identity, connection) =>
+        new Ocpp201ChargingStationService(identity, this.getChargingStationService(OCPPVersion.VERSION_201), connection)),
     };
   }
 
@@ -239,7 +239,7 @@ export default class Ocpp201Server extends OCPPServer {
       existingConnection.close(WS_CLOSE_NORMAL, 'Replaced by a new connection');
     }
     try {
-      connection.setRequestHandler(this.dependencies.createRequestHandler(identity));
+      connection.setRequestHandler(this.dependencies.createRequestHandler(identity, connection));
     } catch (error) {
       this.log('error', identity, ServerAction.WS_SERVER_CONNECTION_OPEN,
         `Connection ID '${connection.guid}' cannot be initialized: ${(error as Error)?.message}`);

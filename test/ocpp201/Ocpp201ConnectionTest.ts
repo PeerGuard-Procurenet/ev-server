@@ -174,6 +174,36 @@ describe('OCPP 2.0.1 connection (OCPP-J RPC framework)', () => {
       expect(socket.sent.map((frame) => frame[1])).toEqual(['msg-1', 'msg-2']);
     });
 
+    it('should run a task between the requests already received and the next ones', async () => {
+      const order: string[] = [];
+      let releaseFirst: () => void;
+      handler.handleRequest
+        .mockImplementationOnce(async () => {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+          order.push('request-1');
+          return heartbeatResponse;
+        })
+        .mockImplementationOnce(async () => {
+          order.push('request-2');
+          return Promise.resolve(heartbeatResponse);
+        });
+      connection.onMessage(JSON.stringify([2, 'msg-1', 'Heartbeat', {}]));
+      const task = connection.runAfterReceivedRequests(async () => {
+        order.push('task');
+        return Promise.reject(new Error('Task failure'));
+      });
+      connection.onMessage(JSON.stringify([2, 'msg-2', 'Heartbeat', {}]));
+      await flush();
+      expect(order).toEqual([]);
+      releaseFirst();
+      await expect(task).rejects.toThrow('Task failure');
+      await flush();
+      // A failed task does not block the next requests
+      expect(order).toEqual(['request-1', 'task', 'request-2']);
+    });
+
     it('should keep processing the requests after an error', async () => {
       handler.handleRequest.mockRejectedValueOnce(new Error('Failure'));
       connection.onMessage(JSON.stringify([2, 'msg-1', 'Heartbeat', {}]));

@@ -5,6 +5,7 @@ import OCPPService from '../../src/server/ocpp/services/OCPPService';
 import OCPPUtils from '../../src/server/ocpp/utils/OCPPUtils';
 import Ocpp201ChargingStationService from '../../src/server/ocpp201/services/Ocpp201ChargingStationService';
 import Ocpp201Error from '../../src/server/ocpp201/Ocpp201Error';
+import { Ocpp201RequestChannel } from '../../src/server/ocpp201/Ocpp201Connection';
 import Ocpp201EvseStateManager from '../../src/server/ocpp201/mapping/Ocpp201EvseStateManager';
 import Ocpp201TransactionStorage from '../../src/server/ocpp201/storage/Ocpp201TransactionStorage';
 import TransactionStorage from '../../src/storage/mongodb/TransactionStorage';
@@ -384,6 +385,153 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
     it('should ignore the status of the EVSE 0', async () => {
       await statusNotification('Unavailable', 0, 0);
       expect(ocppService.handleStatusNotification).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Interrupted transactions', () => {
+    const otherTransaction = (transactionId: string, extra: Ocpp201Payload = {}) => ({
+      ...extra, transactionInfo: { transactionId, ...(extra.transactionInfo ?? {}) },
+    });
+
+    beforeEach(() => {
+      chargingStation.connectors = [{ connectorId: 1 }, { connectorId: 2 }];
+      (TransactionStorage.getTransaction as jest.Mock<any>).mockResolvedValue(
+        { id: 555, meterStart: 3, lastConsumption: { value: 1534, timestamp: new Date('2024-10-12T10:11:00Z') } });
+    });
+
+    // Charging Station behavior after a power outage: the interrupted transaction is never ended, a new one is started (offline) and ended
+    it('should end the interrupted transaction with the start reading of the transaction replacing it', async () => {
+      await statusNotification('Occupied', 2, 2);
+      await transactionEvent('Started', 0, { idToken, evse: { id: 2, connectorId: 2 }, transactionInfo: { chargingState: 'Charging' },
+        meterValue: energy(3, 'Transaction.Begin', '2024-10-12T10:09:00Z') });
+      await transactionEvent('Updated', 1, { meterValue: energy(1534, 'Sample.Periodic', '2024-10-12T10:11:00Z') });
+      await expect(transactionEvent('Started', 2, otherTransaction('TX-2', {
+        offline: true, triggerReason: 'CablePluggedIn', evse: { id: 2, connectorId: 2 }, transactionInfo: { chargingState: 'EVConnected' },
+        meterValue: energy(1766, 'Transaction.Begin', '2024-10-12T10:11:30Z') }))).resolves.toEqual({});
+      expect(ocppService.handleStopTransaction).toHaveBeenCalledTimes(1);
+      const [, stopTransaction, isSoftStop, isStoppedByCentralSystem] = ocppService.handleStopTransaction.mock.calls[0];
+      expect(stopTransaction).toEqual({ transactionId: 555, idTag: 'TAG1', meterStop: 1766, timestamp: '2024-10-12T10:11:30.000Z', reason: 'PowerLoss' });
+      expect(isSoftStop).toBe(false);
+      expect(isStoppedByCentralSystem).toBe(true);
+      expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ ended: true, endedAt: new Date('2024-10-12T10:11:30Z'),
+        endedByCsms: { reason: 'Replaced', replacedByTransactionId: 'TX-2' } });
+      // The new transaction has no user: it is ended without platform transaction
+      await transactionEvent('Ended', 3, otherTransaction('TX-2', { transactionInfo: { stoppedReason: 'PowerLoss' },
+        meterValue: energy(1747, 'Transaction.End', '2024-10-12T10:12:30Z') }));
+      expect(ocppService.handleStopTransaction).toHaveBeenCalledTimes(1);
+      expect(statusesSent()).toEqual(['Preparing', 'Charging', 'Preparing']);
+    });
+
+    it('should end the interrupted transaction with its last reading when the next reading is not consistent', async () => {
+      await transactionEvent('Started', 0, { idToken, evse: { id: 2 }, meterValue: energy(3, 'Transaction.Begin', '2024-10-12T10:09:00Z') });
+      await transactionEvent('Updated', 1, { meterValue: energy(1534, 'Sample.Periodic', '2024-10-12T10:11:00Z') });
+      // Lower register value (e.g. meter replaced)
+      await transactionEvent('Started', 2, otherTransaction('TX-2', { evse: { id: 2 }, meterValue: energy(20, 'Transaction.Begin', '2024-10-12T10:11:30Z') }));
+      expect(ocppService.handleStopTransaction.mock.calls[0][1]).toEqual(
+        { transactionId: 555, idTag: 'TAG1', meterStop: 1534, timestamp: '2024-10-12T10:11:00.000Z', reason: 'Other' });
+    });
+
+    it('should keep the end of the interrupted transaction when no energy has been delivered since its last reading', async () => {
+      await transactionEvent('Started', 0, { idToken, evse: { id: 2 }, meterValue: energy(3, 'Transaction.Begin', '2024-10-12T10:09:00Z') });
+      await transactionEvent('Updated', 1, { meterValue: energy(1534, 'Sample.Periodic', '2024-10-12T10:11:00Z') });
+      await transactionEvent('Started', 2, otherTransaction('TX-2', { evse: { id: 2 }, meterValue: energy(1534, 'Transaction.Begin', '2024-10-12T11:30:00Z') }));
+      expect(ocppService.handleStopTransaction.mock.calls[0][1]).toMatchObject({ meterStop: 1534, timestamp: '2024-10-12T10:11:00.000Z' });
+    });
+
+    it('should not end the transactions of the other EVSE', async () => {
+      await transactionEvent('Started', 0, { idToken, evse: { id: 1 }, meterValue: energy(3, 'Transaction.Begin', '2024-10-12T10:09:00Z') });
+      await transactionEvent('Started', 1, otherTransaction('TX-2', { evse: { id: 2 }, meterValue: energy(50, 'Transaction.Begin', '2024-10-12T10:11:00Z') }));
+      expect(ocppService.handleStopTransaction).not.toHaveBeenCalled();
+      expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ ended: false });
+    });
+
+    it('should not end a more recent transaction when an older one is received late', async () => {
+      await transactionEvent('Started', 2, { idToken, evse: { id: 2 }, meterValue: energy(1766, 'Transaction.Begin', '2024-10-12T10:11:30Z') });
+      await transactionEvent('Started', 0, otherTransaction('TX-0', { offline: true, evse: { id: 2 },
+        meterValue: energy(3, 'Transaction.Begin', '2024-10-12T10:09:00Z') }));
+      expect(ocppService.handleStopTransaction).not.toHaveBeenCalled();
+      expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ ended: false });
+    });
+
+    it('should keep the interrupted transaction ongoing when the platform cannot stop it', async () => {
+      ocppService.handleStopTransaction.mockResolvedValueOnce({ idTagInfo: { status: 'Invalid' } });
+      await transactionEvent('Started', 0, { idToken, evse: { id: 2 }, meterValue: energy(3, 'Transaction.Begin', '2024-10-12T10:09:00Z') });
+      await transactionEvent('Started', 1, otherTransaction('TX-2', { evse: { id: 2 }, meterValue: energy(1766, 'Transaction.Begin', '2024-10-12T10:11:30Z') }));
+      expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ ended: false });
+    });
+
+    describe('after a boot', () => {
+      let channel: { isClosed: jest.Mock<any>; sendRequest: jest.Mock<any>; runAfterReceivedRequests: jest.Mock<any> };
+      let queueStatuses: boolean[];
+      let transactionStatuses: Record<string, Ocpp201Payload>;
+
+      beforeEach(() => {
+        queueStatuses = [false];
+        transactionStatuses = {};
+        channel = {
+          isClosed: jest.fn(() => false),
+          sendRequest: jest.fn(async (action: string, payload: Ocpp201Payload) => Promise.resolve(payload.transactionId ?
+            transactionStatuses[payload.transactionId as string] : { messagesInQueue: queueStatuses.shift() ?? false })),
+          runAfterReceivedRequests: jest.fn(async (task: () => Promise<unknown>) => task()),
+        };
+        service = new Ocpp201ChargingStationService({ tenantID: TENANT_ID, tokenID: 'token', chargingStationID, clientIP: '10.0.0.1' },
+          ocppService as unknown as OCPPService, channel as unknown as Ocpp201RequestChannel, 0);
+      });
+
+      it('should end the transactions that are not ongoing anymore once the queued messages have been delivered', async () => {
+        await transactionEvent('Started', 0, { idToken, evse: { id: 1 } });
+        await transactionEvent('Started', 0, otherTransaction('TX-2', { evse: { id: 2 } }));
+        transactionStatuses = { 'TX-1': { ongoingIndicator: false, messagesInQueue: false }, 'TX-2': { ongoingIndicator: true, messagesInQueue: false } };
+        queueStatuses = [true, false];
+        await service.reconcileTransactionsAfterBoot('PowerUp');
+        expect(channel.sendRequest.mock.calls.map((call) => call[1])).toEqual([{}, {}, { transactionId: 'TX-1' }, { transactionId: 'TX-2' }]);
+        expect(ocppService.handleStopTransaction).toHaveBeenCalledTimes(1);
+        expect(ocppService.handleStopTransaction.mock.calls[0][1]).toEqual(
+          { transactionId: 555, idTag: 'TAG1', meterStop: 1534, timestamp: '2024-10-12T10:11:00.000Z', reason: 'PowerLoss' });
+        expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ ended: true, endedByCsms: { reason: 'NotOngoingAfterBoot' } });
+        expect(mappingStore.get(`${chargingStationID}~TX-2`)).toMatchObject({ ended: false });
+      });
+
+      it('should not end a transaction with queued messages or updated in the meantime', async () => {
+        await transactionEvent('Started', 0, { idToken, evse: { id: 1 } });
+        await transactionEvent('Started', 0, otherTransaction('TX-2', { evse: { id: 2 } }));
+        transactionStatuses = { 'TX-1': { ongoingIndicator: false, messagesInQueue: true }, 'TX-2': { ongoingIndicator: false, messagesInQueue: false } };
+        // A Transaction Event of TX-2 is received while its status is requested
+        channel.runAfterReceivedRequests.mockImplementationOnce(async (task: () => Promise<unknown>) => {
+          await transactionEvent('Updated', 1, otherTransaction('TX-2', { transactionInfo: { chargingState: 'Charging' } }));
+          return task();
+        });
+        await service.reconcileTransactionsAfterBoot('ApplicationReset');
+        expect(ocppService.handleStopTransaction).not.toHaveBeenCalled();
+      });
+
+      it('should give up when the queued messages are never delivered', async () => {
+        await transactionEvent('Started', 0, { idToken, evse: { id: 1 } });
+        queueStatuses = new Array<boolean>(20).fill(true);
+        await service.reconcileTransactionsAfterBoot('PowerUp');
+        expect(channel.sendRequest).toHaveBeenCalledTimes(10);
+        expect(ocppService.handleStopTransaction).not.toHaveBeenCalled();
+      });
+
+      it('should check the transactions after an accepted boot only', async () => {
+        jest.useFakeTimers();
+        try {
+          ocppService.handleBootNotification.mockResolvedValueOnce({ status: 'Pending', currentTime: '2024-10-12T10:00:00.000Z', interval: 60 });
+          await handle(Ocpp201IncomingAction.BOOT_NOTIFICATION, { chargingStation: { vendorName: 'F', model: 'M' }, reason: 'PowerUp' });
+          jest.runOnlyPendingTimers();
+          expect(channel.sendRequest).not.toHaveBeenCalled();
+          await handle(Ocpp201IncomingAction.BOOT_NOTIFICATION, { chargingStation: { vendorName: 'F', model: 'M' }, reason: 'PowerUp' });
+          expect(channel.sendRequest).not.toHaveBeenCalled();
+          jest.runOnlyPendingTimers();
+          expect(channel.sendRequest).toHaveBeenCalledWith('GetTransactionStatus', {});
+        } finally {
+          jest.useRealTimers();
+        }
+        // Let the check end within the test
+        for (let i = 0; i < 10; i++) {
+          await new Promise((resolve) => setImmediate(resolve));
+        }
+      });
     });
   });
 });

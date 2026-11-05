@@ -1,6 +1,6 @@
-import { ChargePointErrorCode, ChargePointStatus, OCPPAuthorizationStatus, OCPPAuthorizeRequestExtended, OCPPBootNotificationRequestExtended, OCPPDataTransferRequestExtended, OCPPDiagnosticsStatusNotificationRequestExtended, OCPPFirmwareStatusNotificationRequestExtended, OCPPHeartbeatRequestExtended, OCPPMeterValuesRequestExtended, OCPPProtocol, OCPPStartTransactionRequestExtended, OCPPStatusNotificationRequestExtended, OCPPStopTransactionRequestExtended, OCPPVersion, RegistrationStatus } from '../../../types/ocpp/OCPPServer';
-import { Ocpp201AuthorizationStatus, Ocpp201AuthorizeRequest, Ocpp201AuthorizeResponse, Ocpp201BootNotificationRequest, Ocpp201BootNotificationResponse, Ocpp201ConnectorStatus, Ocpp201DataTransferRequest, Ocpp201DataTransferResponse, Ocpp201DataTransferStatus, Ocpp201ErrorCode, Ocpp201FirmwareStatusNotificationRequest, Ocpp201IdTokenInfo, Ocpp201IdTokenType, Ocpp201IncomingAction, Ocpp201LogStatusNotificationRequest, Ocpp201MeterValuesRequest, Ocpp201Payload, Ocpp201RegistrationStatus, Ocpp201StatusNotificationRequest, Ocpp201TransactionEventRequest, Ocpp201TransactionEventResponse, Ocpp201TransactionEventType, Ocpp201TransactionMapping } from '../types/Ocpp201Types';
-import { Ocpp201ConnectionIdentity, Ocpp201RequestHandler } from '../Ocpp201Connection';
+import { ChargePointErrorCode, ChargePointStatus, OCPPAuthorizationStatus, OCPPAuthorizeRequestExtended, OCPPBootNotificationRequestExtended, OCPPDataTransferRequestExtended, OCPPDiagnosticsStatusNotificationRequestExtended, OCPPFirmwareStatusNotificationRequestExtended, OCPPHeartbeatRequestExtended, OCPPMeterValuesRequestExtended, OCPPProtocol, OCPPReason, OCPPStartTransactionRequestExtended, OCPPStatusNotificationRequestExtended, OCPPStopTransactionRequestExtended, OCPPVersion, RegistrationStatus } from '../../../types/ocpp/OCPPServer';
+import { Ocpp201AuthorizationStatus, Ocpp201AuthorizeRequest, Ocpp201AuthorizeResponse, Ocpp201BootNotificationRequest, Ocpp201BootNotificationResponse, Ocpp201ConnectorStatus, Ocpp201DataTransferRequest, Ocpp201DataTransferResponse, Ocpp201DataTransferStatus, Ocpp201ErrorCode, Ocpp201FirmwareStatusNotificationRequest, Ocpp201GetTransactionStatusResponse, Ocpp201IdTokenInfo, Ocpp201IdTokenType, Ocpp201IncomingAction, Ocpp201LogStatusNotificationRequest, Ocpp201MeterValuesRequest, Ocpp201OutgoingAction, Ocpp201Payload, Ocpp201RegistrationStatus, Ocpp201StatusNotificationRequest, Ocpp201TransactionEndedByCsmsReason, Ocpp201TransactionEventRequest, Ocpp201TransactionEventResponse, Ocpp201TransactionEventType, Ocpp201TransactionMapping } from '../types/Ocpp201Types';
+import { Ocpp201ConnectionIdentity, Ocpp201RequestChannel, Ocpp201RequestHandler } from '../Ocpp201Connection';
 
 import ChargingStationStorage from '../../../storage/mongodb/ChargingStationStorage';
 import Configuration from '../../../utils/Configuration';
@@ -21,17 +21,35 @@ const MODULE_NAME = 'Ocpp201ChargingStationService';
 
 const TRANSACTION_BEGIN = 'Transaction.Begin';
 
+// After a boot, the Charging Station first delivers the transaction messages it has queued while it was offline:
+// the ongoing transactions are checked once its queue is empty
+const RECONCILIATION_DELAY_MILLIS = 30 * 1000;
+const RECONCILIATION_MAX_QUEUE_CHECKS = 10;
+
 // Handles the requests of an OCPP 2.0.1 Charging Station by translating them into the platform business logic (OCPPService)
 export default class Ocpp201ChargingStationService implements Ocpp201RequestHandler {
   private readonly identity: Ocpp201ConnectionIdentity;
   private readonly ocppService: OCPPService;
+  private readonly channel: Ocpp201RequestChannel | null;
+  private readonly reconciliationDelayMillis: number;
   private bootRejected = false;
   private evseStatesRestored = false;
   private lastSeenUpdatedOn: number = null;
+  private reconciliationTimer: NodeJS.Timeout = null;
 
-  public constructor(identity: Ocpp201ConnectionIdentity, ocppService: OCPPService) {
+  public constructor(identity: Ocpp201ConnectionIdentity, ocppService: OCPPService, channel: Ocpp201RequestChannel = null,
+      reconciliationDelayMillis = RECONCILIATION_DELAY_MILLIS) {
     this.identity = identity;
     this.ocppService = ocppService;
+    this.channel = channel;
+    this.reconciliationDelayMillis = reconciliationDelayMillis;
+  }
+
+  // Energy register reading at the start of the transaction (Transaction.Begin, or first reading of the Started event)
+  private static findStartReading(transactionEvent: Ocpp201TransactionEventRequest): { valueWh: number; timestamp: string } | null {
+    return Ocpp201Mapper.findEnergyRegisterReading(transactionEvent.meterValue, 'first', TRANSACTION_BEGIN) ??
+      (transactionEvent.eventType === Ocpp201TransactionEventType.STARTED ?
+        Ocpp201Mapper.findEnergyRegisterReading(transactionEvent.meterValue, 'first') : null);
   }
 
   public async handleRequest(action: Ocpp201IncomingAction, payload: Ocpp201Payload): Promise<Ocpp201Payload> {
@@ -111,6 +129,52 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     }
   }
 
+  // After a boot, end the transactions that the Charging Station reports as not ongoing anymore (e.g. lost in a power outage)
+  public async reconcileTransactionsAfterBoot(bootReason: string): Promise<void> {
+    if (!this.channel) {
+      return;
+    }
+    // Wait until the Charging Station has delivered the transaction messages queued while it was offline
+    for (let check = 1; ; check++) {
+      if (this.channel.isClosed()) {
+        return;
+      }
+      const queueStatus = await this.channel.sendRequest(Ocpp201OutgoingAction.GET_TRANSACTION_STATUS, {}) as Ocpp201GetTransactionStatusResponse;
+      if (!queueStatus.messagesInQueue) {
+        break;
+      }
+      if (check >= RECONCILIATION_MAX_QUEUE_CHECKS) {
+        this.log('warning', ServerAction.WS_SERVER_MESSAGE, 'Ongoing transactions are not checked after the boot: transaction messages are still queued');
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, this.reconciliationDelayMillis));
+    }
+    const headers = await this.buildHeaders(ServerAction.WS_SERVER_MESSAGE);
+    const mappings = await Ocpp201TransactionStorage.getOngoingMappingsOfChargingStation(headers.tenant, this.identity.chargingStationID);
+    const reason = bootReason === 'PowerUp' ? OCPPReason.POWER_LOSS : OCPPReason.REBOOT;
+    for (const mapping of mappings) {
+      if (this.channel.isClosed()) {
+        return;
+      }
+      const transactionStatus = await this.channel.sendRequest(Ocpp201OutgoingAction.GET_TRANSACTION_STATUS,
+        { transactionId: mapping.transactionId }) as Ocpp201GetTransactionStatusResponse;
+      if (transactionStatus.ongoingIndicator !== false || transactionStatus.messagesInQueue) {
+        continue;
+      }
+      // Processed in sequence with the Transaction Events
+      await this.channel.runAfterReceivedRequests(async () => {
+        const currentMapping = await Ocpp201TransactionStorage.getMapping(headers.tenant, this.identity.chargingStationID, mapping.transactionId);
+        // Updated by the Charging Station in the meantime
+        if (!currentMapping || currentMapping.ended || currentMapping.lastSeqNo !== mapping.lastSeqNo) {
+          return;
+        }
+        await this.endInterruptedTransaction(await this.buildHeaders(ServerAction.WS_SERVER_MESSAGE), currentMapping, reason,
+          { reason: Ocpp201TransactionEndedByCsmsReason.NOT_ONGOING_AFTER_BOOT, endedOn: new Date() });
+        await this.syncPlatformConnectorStatus(headers, currentMapping.evseId, new Date().toISOString());
+      });
+    }
+  }
+
   // ------------------------------------------------------------------------
   // Provisioning
   // ------------------------------------------------------------------------
@@ -123,6 +187,9 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       // All the connector statuses are sent again after a boot
       Ocpp201EvseStateManager.resetChargingStation(this.identity.tenantID, this.identity.chargingStationID);
       this.evseStatesRestored = false;
+    }
+    if (result.status === RegistrationStatus.ACCEPTED) {
+      this.scheduleTransactionsReconciliation(bootNotification.reason);
     }
     this.log('info', ServerAction.OCPP_BOOT_NOTIFICATION, `Boot Notification (reason '${bootNotification.reason}') has been answered with status '${result.status}'`,
       { bootNotification });
@@ -187,6 +254,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     const transactionId = transactionEvent.transactionInfo.transactionId;
     const tagID = transactionEvent.idToken ? Ocpp201Mapper.getPlatformTagID(transactionEvent.idToken) : null;
     let mapping = await Ocpp201TransactionStorage.getMapping(tenant, this.identity.chargingStationID, transactionId);
+    const evseWasKnown = !Utils.isNullOrUndefined(mapping?.evseId);
     // Retransmitted message (same sequence number)
     if (mapping && mapping.lastSeqNo === transactionEvent.seqNo && mapping.lastEventTimestamp === transactionEvent.timestamp) {
       this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Transaction Event '${transactionEvent.eventType}' with sequence number '${transactionEvent.seqNo}' of transaction '${transactionId}' has already been processed`,
@@ -210,6 +278,10 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       };
     }
     this.updateMappingWithTransactionEvent(headers, mapping, transactionEvent);
+    // A new transaction on the EVSE: the previous one will never be ended by the Charging Station
+    if (!evseWasKnown && !Utils.isNullOrUndefined(mapping.evseId)) {
+      await this.endReplacedTransactions(headers, mapping, transactionEvent);
+    }
     // Transaction started remotely: the Charging Station may only send the remoteStartId, not the ID Token
     let startTagID = tagID;
     if (!startTagID && !mapping.platformTransactionID && !mapping.authorizationStatus && !Utils.isNullOrUndefined(mapping.remoteStartId)) {
@@ -305,9 +377,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
         beginTimestamp : transactionEvent.timestamp);
     }
     if (Utils.isNullOrUndefined(mapping.meterStartWh)) {
-      const beginReading = Ocpp201Mapper.findEnergyRegisterReading(transactionEvent.meterValue, 'first', TRANSACTION_BEGIN) ??
-        (transactionEvent.eventType === Ocpp201TransactionEventType.STARTED ?
-          Ocpp201Mapper.findEnergyRegisterReading(transactionEvent.meterValue, 'first') : null);
+      const beginReading = Ocpp201ChargingStationService.findStartReading(transactionEvent);
       if (beginReading) {
         mapping.meterStartWh = beginReading.valueWh;
       }
@@ -420,6 +490,106 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     const result = await this.ocppService.handleStopTransaction(headers, stopTransaction);
     this.log(result.idTagInfo?.status === OCPPAuthorizationStatus.ACCEPTED ? 'info' : 'error', ServerAction.OCPP_STOP_TRANSACTION,
       `OCPP 2.0.1 transaction '${mapping.transactionId}' ended (reason '${transactionEvent.transactionInfo.stoppedReason ?? 'Local'}'), stop of transaction ID '${mapping.platformTransactionID}': '${result.idTagInfo?.status}'`);
+  }
+
+  // ------------------------------------------------------------------------
+  // Interrupted transactions
+  // ------------------------------------------------------------------------
+  // An EVSE has only one transaction at a time: the older ongoing transactions of the EVSE will never be ended by the Charging Station
+  // (e.g. after a power outage, the Charging Station starts a new transaction instead of ending the interrupted one)
+  private async endReplacedTransactions(headers: OCPPHeader, mapping: Ocpp201TransactionMapping,
+      transactionEvent: Ocpp201TransactionEventRequest): Promise<void> {
+    const ongoingMappings = await Ocpp201TransactionStorage.getOngoingMappingsOfChargingStation(headers.tenant, this.identity.chargingStationID);
+    const startReading = Ocpp201ChargingStationService.findStartReading(transactionEvent);
+    for (const previousMapping of ongoingMappings) {
+      if (previousMapping.transactionId === mapping.transactionId || previousMapping.evseId !== mapping.evseId) {
+        continue;
+      }
+      // An older transaction received late does not replace a more recent one
+      if (previousMapping.startedAt && new Date(previousMapping.startedAt).getTime() >= mapping.startedAt.getTime()) {
+        continue;
+      }
+      await this.endInterruptedTransaction(headers, previousMapping, transactionEvent.offline ? OCPPReason.POWER_LOSS : OCPPReason.OTHER,
+        { reason: Ocpp201TransactionEndedByCsmsReason.REPLACED, replacedByTransactionId: mapping.transactionId, endedOn: new Date() },
+        startReading ? { valueWh: startReading.valueWh, timestamp: new Date(startReading.timestamp) } : null);
+    }
+  }
+
+  // Ends the platform transaction with the last known meter reading, or with the start reading of the transaction that replaced it on the EVSE
+  // (same meter, read later) when it is higher: never with an estimated value
+  private async endInterruptedTransaction(headers: OCPPHeader, mapping: Ocpp201TransactionMapping, reason: OCPPReason,
+      endedByCsms: Ocpp201TransactionMapping['endedByCsms'], nextReading: { valueWh: number; timestamp: Date } = null): Promise<void> {
+    const tenant = headers.tenant;
+    let meterStop = mapping.lastMeterWh;
+    let stopTimestamp = new Date(mapping.lastEventTimestamp ?? mapping.startedAt ?? mapping.createdOn);
+    if (mapping.platformTransactionID) {
+      const transaction = await TransactionStorage.getTransaction(tenant, mapping.platformTransactionID);
+      if (transaction && !transaction.stop) {
+        if (transaction.lastConsumption) {
+          meterStop = meterStop ?? transaction.lastConsumption.value;
+          // The stop cannot be before the last consumption
+          const lastConsumptionTimestamp = new Date(transaction.lastConsumption.timestamp);
+          if (lastConsumptionTimestamp.getTime() > stopTimestamp.getTime()) {
+            stopTimestamp = lastConsumptionTimestamp;
+          }
+        }
+        meterStop = meterStop ?? mapping.meterStartWh ?? transaction.meterStart;
+        // Only when energy has been delivered since the last reading (otherwise the last reading gives the right end)
+        if (nextReading && nextReading.valueWh > meterStop && nextReading.timestamp.getTime() > stopTimestamp.getTime()) {
+          meterStop = nextReading.valueWh;
+          stopTimestamp = nextReading.timestamp;
+        }
+        const result = await this.ocppService.handleStopTransaction(headers, {
+          transactionId: mapping.platformTransactionID,
+          idTag: mapping.idToken,
+          meterStop,
+          timestamp: stopTimestamp.toISOString(),
+          reason,
+        } as OCPPStopTransactionRequestExtended, false, true);
+        if (result.idTagInfo?.status !== OCPPAuthorizationStatus.ACCEPTED) {
+          // Kept ongoing: will be retried
+          this.log('error', ServerAction.OCPP_STOP_TRANSACTION,
+            `Interrupted OCPP 2.0.1 transaction '${mapping.transactionId}' on EVSE '${mapping.evseId}', transaction ID '${mapping.platformTransactionID}' cannot be stopped: '${result.idTagInfo?.status}'`);
+          return;
+        }
+      } else {
+        this.log('warning', ServerAction.OCPP_STOP_TRANSACTION,
+          `Interrupted OCPP 2.0.1 transaction '${mapping.transactionId}': transaction ID '${mapping.platformTransactionID}' ${transaction ? 'is already stopped' : 'does not exist'}`);
+      }
+    }
+    mapping.ended = true;
+    mapping.endedAt = stopTimestamp;
+    mapping.endedByCsms = endedByCsms;
+    await Ocpp201TransactionStorage.saveMapping(tenant, mapping);
+    const evseState = Ocpp201EvseStateManager.getEvseState(this.identity.tenantID, this.identity.chargingStationID, mapping.evseId);
+    if (evseState.transactionId === mapping.transactionId) {
+      delete evseState.transactionId;
+      delete evseState.platformTransactionID;
+      delete evseState.chargingState;
+    }
+    // The platform connector has been updated by the stop: send the EVSE status again
+    delete evseState.lastPlatformStatus;
+    this.log('warning', ServerAction.OCPP_STOP_TRANSACTION,
+      `Interrupted OCPP 2.0.1 transaction '${mapping.transactionId}' on EVSE '${mapping.evseId}' has been ended by the CSMS ('${endedByCsms.reason}'` +
+      `${endedByCsms.replacedByTransactionId ? `, replaced by '${endedByCsms.replacedByTransactionId}'` : ''})` +
+      `${mapping.platformTransactionID ? `: transaction ID '${mapping.platformTransactionID}' stopped with meter '${meterStop}' Wh at '${stopTimestamp.toISOString()}' (reason '${reason}')` : ''}`);
+  }
+
+  private scheduleTransactionsReconciliation(bootReason: string): void {
+    if (!this.channel) {
+      return;
+    }
+    if (this.reconciliationTimer) {
+      clearTimeout(this.reconciliationTimer);
+    }
+    this.reconciliationTimer = setTimeout(() => {
+      this.reconciliationTimer = null;
+      this.reconcileTransactionsAfterBoot(bootReason).catch((error) => {
+        this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Ongoing transactions cannot be checked after the boot: ${(error as Error)?.message}`);
+      });
+    }, this.reconciliationDelayMillis);
+    // Never keep the process alive
+    this.reconciliationTimer.unref?.();
   }
 
   // Meter values sent outside of a transaction

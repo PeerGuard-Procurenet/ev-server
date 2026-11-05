@@ -281,6 +281,12 @@ export interface Ocpp201TransactionEventResponse {
   idTokenInfo?: Ocpp201IdTokenInfo;
 }
 
+export interface Ocpp201GetTransactionStatusResponse {
+  // Only provided when a transaction ID has been requested
+  ongoingIndicator?: boolean;
+  messagesInQueue: boolean;
+}
+
 // --------------------------------------------------------------------------
 // Firmware / Log / DataTransfer
 // --------------------------------------------------------------------------
@@ -404,6 +410,23 @@ export interface Ocpp201TransactionMapping {
   lastEventTimestamp?: string;
   ended: boolean;
   endedAt?: Date;
+  // Set when the transaction has been ended by the CSMS because the Charging Station will never end it (e.g. lost in a power outage)
+  endedByCsms?: Ocpp201TransactionEndedByCsms;
   createdOn: Date;
   lastChangedOn: Date;
+}
+
+export enum Ocpp201TransactionEndedByCsmsReason {
+  // Another transaction has been started on the same EVSE
+  REPLACED = 'Replaced',
+  // The Charging Station reported after its boot that the transaction is not ongoing anymore
+  NOT_ONGOING_AFTER_BOOT = 'NotOngoingAfterBoot',
+  // No message received for the transaction for a long time (see src/scripts/CloseInterruptedOcpp201Transactions.js)
+  STALE = 'Stale',
+}
+
+export interface Ocpp201TransactionEndedByCsms {
+  reason: Ocpp201TransactionEndedByCsmsReason;
+  replacedByTransactionId?: string;
+  endedOn: Date;
 }

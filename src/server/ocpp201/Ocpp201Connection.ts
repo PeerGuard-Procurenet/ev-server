@@ -29,6 +29,14 @@ export interface Ocpp201RequestHandler {
   handleRequest(action: Ocpp201IncomingAction, payload: Ocpp201Payload): Promise<Ocpp201Payload>;
 }
 
+// Lets the request handler talk to the Charging Station on its own initiative
+export interface Ocpp201RequestChannel {
+  isClosed(): boolean;
+  sendRequest(action: Ocpp201OutgoingAction, payload: Ocpp201Payload): Promise<Ocpp201Payload>;
+  // Runs the task once the requests already received have been processed (and before the next ones)
+  runAfterReceivedRequests<T>(task: () => Promise<T>): Promise<T>;
+}
+
 export interface Ocpp201ConnectionIdentity {
   tenantID: string;
   tokenID: string;
@@ -45,7 +53,7 @@ interface PendingRequest {
 }
 
 // One OCPP-J 2.0.1 WebSocket connection with a Charging Station
-export default class Ocpp201Connection {
+export default class Ocpp201Connection implements Ocpp201RequestChannel {
   public readonly guid = randomUUID();
   public readonly identity: Ocpp201ConnectionIdentity;
   public readonly connectedOn = new Date();
@@ -163,6 +171,12 @@ export default class Ocpp201Connection {
     const execute = async () => this.executeRequest(action, payload);
     const result = this.outgoingQueue.then(execute, execute);
     this.outgoingQueue = result.catch(() => { /* Handled by the caller */ });
+    return result;
+  }
+
+  public async runAfterReceivedRequests<T>(task: () => Promise<T>): Promise<T> {
+    const result = this.incomingQueue.then(task);
+    this.incomingQueue = result.then(() => { /* Done */ }, () => { /* Handled by the caller */ });
     return result;
   }
 

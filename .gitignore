@@ -93,3 +93,6 @@ mta_archives/
 
 # ENV
 .env
+
+# Readme
+claude.txt

@@ -140,7 +140,8 @@
     "notifBeforeEndOfChargePercent": 85,
     "notifEndOfChargeEnabled": true,
     "notifStopTransactionAndUnlockConnector": false,
-    "maxLastSeenIntervalSecs": 540
+    "maxLastSeenIntervalSecs": 540,
+    "defaultCurrentType": "DC"
   },
   "Migration": {
     "active": true
