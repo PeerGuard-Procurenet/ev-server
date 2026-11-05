@@ -239,6 +239,9 @@ export default class Configuration {
       if (Configuration.isUndefined('ChargingStation.setLocalTimeOnChargingStations', chargingStationConfiguration.setLocalTimeOnChargingStations)) {
         chargingStationConfiguration.setLocalTimeOnChargingStations = true;
       }
+      if (Configuration.isUndefined('ChargingStation.offlineAuthorizationEnabled', chargingStationConfiguration.offlineAuthorizationEnabled)) {
+        chargingStationConfiguration.offlineAuthorizationEnabled = true;
+      }
     }
     return chargingStationConfiguration;
   }

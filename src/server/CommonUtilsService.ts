@@ -4,6 +4,8 @@ import { Action } from '../types/Authorization';
 import Authorizations from '../authorization/Authorizations';
 import BackendError from '../exception/BackendError';
 import ChargingStation from '../types/ChargingStation';
+import Configuration from '../utils/Configuration';
+import Logging from '../utils/Logging';
 import LoggingHelper from '../utils/LoggingHelper';
 import { ServerAction } from '../types/Server';
 import Tag from '../types/Tag';
@@ -26,6 +28,42 @@ export class CommonUtilsService {
   public static async isAuthorizedToStartTransaction(tenant: Tenant, chargingStation: ChargingStation,
       tagID: string, transaction: Transaction, action: ServerAction, authAction?: Action): Promise<{user: User, tag?: Tag}> {
     return CommonUtilsService.isTagIDAuthorizedOnChargingStation(tenant, chargingStation, transaction, tagID, action, authAction);
+  }
+
+  // Tag of a transaction authorized by the Charging Station while offline (Local Authorization List): the session has happened, so it is
+  // recorded with the user of the tag even if the tag or its user is not authorized anymore, or with the fallback user if the tag has been deleted
+  public static async getUserOfOfflineAuthorizedTag(tenant: Tenant, chargingStation: ChargingStation,
+      tagID: string, action: ServerAction): Promise<{user: User, tag?: Tag}> {
+    const tag = await TagStorage.getTag(tenant, tagID);
+    let user = tag?.userID ? await UserStorage.getUser(tenant, tag.userID) : null;
+    if (user) {
+      if (!tag.active || user.status !== UserStatus.ACTIVE) {
+        await Logging.logWarning({
+          ...LoggingHelper.getChargingStationProperties(chargingStation),
+          tenantID: tenant.id, action, user,
+          module: MODULE_NAME, method: 'getUserOfOfflineAuthorizedTag',
+          message: `Tag ID '${tagID}' used offline is not authorized anymore (tag ${tag.active ? 'active' : 'inactive'}, user '${Utils.getStatusDescription(user.status)}'): the session is recorded`,
+        });
+      }
+      return { user, tag };
+    }
+    const fallbackUserID = Configuration.getChargingStationConfig()?.offlineFallbackUserID;
+    user = fallbackUserID ? await UserStorage.getUser(tenant, fallbackUserID) : null;
+    if (!user) {
+      throw new BackendError({
+        ...LoggingHelper.getChargingStationProperties(chargingStation),
+        action,
+        module: MODULE_NAME, method: 'getUserOfOfflineAuthorizedTag',
+        message: `Tag ID '${tagID}' used offline is unknown and no fallback user is configured ('ChargingStation.offlineFallbackUserID')`
+      });
+    }
+    await Logging.logWarning({
+      ...LoggingHelper.getChargingStationProperties(chargingStation),
+      tenantID: tenant.id, action, user,
+      module: MODULE_NAME, method: 'getUserOfOfflineAuthorizedTag',
+      message: `Tag ID '${tagID}' used offline is unknown: the session is recorded with the fallback user`,
+    });
+    return { user, tag };
   }
 
   public static async isAuthorizedToStopTransaction(tenant: Tenant, chargingStation: ChargingStation,

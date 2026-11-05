@@ -375,6 +375,34 @@ export interface Ocpp201SetVariablesResponse {
 }
 
 // --------------------------------------------------------------------------
+// Local Authorization List: ID Tokens the Charging Station accepts without the CSMS (e.g. while offline)
+// --------------------------------------------------------------------------
+export enum Ocpp201SendLocalListStatus {
+  ACCEPTED = 'Accepted',
+  FAILED = 'Failed',
+  VERSION_MISMATCH = 'VersionMismatch',
+}
+
+export interface Ocpp201AuthorizationData {
+  idToken: Ocpp201IdToken;
+  idTokenInfo?: Ocpp201IdTokenInfo;
+}
+
+export interface Ocpp201GetLocalListVersionResponse {
+  // 0 when the Charging Station has no list
+  versionNumber: number;
+}
+
+// Version of the list of a tenant: increased each time its content changes
+export interface Ocpp201LocalListVersion {
+  id: string;
+  version: number;
+  // Hash of the ID Tokens of the list
+  hash: string;
+  lastChangedOn: Date;
+}
+
+// --------------------------------------------------------------------------
 // Remote start sent by the CSMS: the Charging Station identifies the resulting transaction with
 // the remoteStartId and does not always send back the ID Token in its Transaction Events
 // --------------------------------------------------------------------------
@@ -400,6 +428,8 @@ export interface Ocpp201TransactionMapping {
   idToken?: string;
   idTokenType?: string;
   authorizationStatus?: Ocpp201AuthorizationStatus;
+  // Started by the Charging Station while offline (Local Authorization List): recorded even if the tag is not authorized anymore
+  authorizedOffline?: boolean;
   remoteStartId?: number;
   startedAt?: Date;
   meterStartWh?: number;

@@ -20,4 +20,8 @@ export default interface ChargingStationConfiguration {
   defaultTimezone?: string;
   // Set the local time displayed by the OCPP 2.0.1 charging stations (timezone of their location) after their boot
   setLocalTimeOnChargingStations?: boolean;
+  // Send the active tags to the OCPP 2.0.1 charging stations so that they can be used while the charging stations are offline
+  offlineAuthorizationEnabled?: boolean;
+  // User of the sessions authorized offline with a tag that does not exist anymore (not set: these sessions are not recorded)
+  offlineFallbackUserID?: string;
 }

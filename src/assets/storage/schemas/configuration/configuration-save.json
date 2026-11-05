@@ -636,6 +636,12 @@
         },
         "setLocalTimeOnChargingStations": {
           "type": "boolean"
+        },
+        "offlineAuthorizationEnabled": {
+          "type": "boolean"
+        },
+        "offlineFallbackUserID": {
+          "type": "string"
         }
       },
       "required": [

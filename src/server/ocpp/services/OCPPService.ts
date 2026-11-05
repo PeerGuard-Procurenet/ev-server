@@ -367,7 +367,9 @@ export default class OCPPService {
     }
   }
 
-  public async handleStartTransaction(headers: OCPPHeader, startTransaction: OCPPStartTransactionRequestExtended): Promise<OCPPStartTransactionResponse> {
+  // authorizedOffline: the Charging Station has authorized the tag while offline (OCPP 2.0.1 Local Authorization List)
+  public async handleStartTransaction(headers: OCPPHeader, startTransaction: OCPPStartTransactionRequestExtended,
+      authorizedOffline = false): Promise<OCPPStartTransactionResponse> {
     try {
       // Get the header infos
       const { chargingStation, tenant } = headers;
@@ -378,8 +380,10 @@ export default class OCPPService {
       // Create Transaction
       const newTransaction = await this.createTransaction(tenant, startTransaction);
       // Check User
-      const { user, tag } = await CommonUtilsService.isAuthorizedToStartTransaction(
-        tenant, chargingStation, startTransaction.tagID, newTransaction, ServerAction.OCPP_START_TRANSACTION, Action.START_TRANSACTION);
+      const { user, tag } = authorizedOffline ?
+        await CommonUtilsService.getUserOfOfflineAuthorizedTag(tenant, chargingStation, startTransaction.tagID, ServerAction.OCPP_START_TRANSACTION) :
+        await CommonUtilsService.isAuthorizedToStartTransaction(
+          tenant, chargingStation, startTransaction.tagID, newTransaction, ServerAction.OCPP_START_TRANSACTION, Action.START_TRANSACTION);
       if (user) {
         startTransaction.userID = user.id;
         newTransaction.userID = user.id;

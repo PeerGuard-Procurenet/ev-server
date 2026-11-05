@@ -1,7 +1,8 @@
-import { Ocpp201ComponentVariable, Ocpp201GetVariableStatus, Ocpp201GetVariablesResponse, Ocpp201OutgoingAction, Ocpp201SetVariableStatus, Ocpp201SetVariablesResponse } from '../types/Ocpp201Types';
+import { Ocpp201ComponentVariable, Ocpp201OutgoingAction } from '../types/Ocpp201Types';
 import { Ocpp201ConnectionIdentity, Ocpp201RequestChannel } from '../Ocpp201Connection';
 
 import Configuration from '../../../utils/Configuration';
+import Ocpp201DeviceModel from './Ocpp201DeviceModel';
 import Ocpp201Logger from '../Ocpp201Logger';
 import { ServerAction } from '../../../types/Server';
 import moment from 'moment-timezone';
@@ -44,33 +45,17 @@ export default class Ocpp201ClockSynchronizer {
       return;
     }
     const expectedSettings = Ocpp201ClockSynchronizer.getLocalTimeSettings(timezone);
-    const getResponse = await this.channel.sendRequest(Ocpp201OutgoingAction.GET_VARIABLES, {
-      getVariableData: [TIME_OFFSET, TIME_ZONE],
-    }) as Ocpp201GetVariablesResponse;
-    const setVariableData: (Ocpp201ComponentVariable & { attributeValue: string })[] = [];
-    for (const result of getResponse.getVariableResult ?? []) {
-      const variableName = result.variable?.name as keyof typeof expectedSettings;
-      const expectedValue = expectedSettings[variableName];
-      if (!expectedValue) {
-        continue;
+    const updates = await Ocpp201DeviceModel.setVariables(this.channel, [
+      { ...TIME_OFFSET, attributeValue: expectedSettings.TimeOffset },
+      { ...TIME_ZONE, attributeValue: expectedSettings.TimeZone },
+    ]);
+    for (const update of updates) {
+      if (update.status === 'NotSupported') {
+        this.log('info', `Local time variable '${update.key}' is not supported`);
+      } else if (update.status !== 'Unchanged') {
+        this.log(Ocpp201DeviceModel.isUpdateApplied(update) ? 'info' : 'warning',
+          `Local time variable '${update.key}' set to '${update.value}' (was '${update.previousValue}'): '${update.status}'`);
       }
-      if (result.attributeStatus !== Ocpp201GetVariableStatus.ACCEPTED) {
-        this.log('info', `Local time variable 'ClockCtrlr.${variableName}' is not supported ('${result.attributeStatus}')`);
-        continue;
-      }
-      if (result.attributeValue !== expectedValue) {
-        setVariableData.push({ component: result.component, variable: result.variable, attributeValue: expectedValue });
-      }
-    }
-    if (setVariableData.length === 0) {
-      return;
-    }
-    const setResponse = await this.channel.sendRequest(Ocpp201OutgoingAction.SET_VARIABLES, { setVariableData }) as Ocpp201SetVariablesResponse;
-    for (const result of setResponse.setVariableResult ?? []) {
-      const accepted = result.attributeStatus === Ocpp201SetVariableStatus.ACCEPTED || result.attributeStatus === Ocpp201SetVariableStatus.REBOOT_REQUIRED;
-      const value = setVariableData.find((data) => data.variable.name === result.variable?.name)?.attributeValue;
-      this.log(accepted ? 'info' : 'warning',
-        `Local time variable 'ClockCtrlr.${result.variable?.name}' set to '${value}': '${result.attributeStatus}'`, { result });
     }
   }
 

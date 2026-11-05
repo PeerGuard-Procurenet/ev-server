@@ -157,7 +157,8 @@
     "maxLastSeenIntervalSecs": 540,
     "defaultCurrentType": "DC",
     "defaultTimezone": "Africa/Lagos",
-    "setLocalTimeOnChargingStations": true
+    "setLocalTimeOnChargingStations": true,
+    "offlineAuthorizationEnabled": true
   },
   "Migration": {
     "active": true

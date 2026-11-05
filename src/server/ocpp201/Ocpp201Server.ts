@@ -27,6 +27,8 @@ const MODULE_NAME = 'Ocpp201Server';
 const WS_CLOSE_NORMAL = 1000;
 const WS_CLOSE_POLICY_VIOLATION = 1008;
 
+const LOCAL_LIST_SYNCHRONIZATION_INTERVAL_MILLIS = 10 * 60 * 1000;
+
 export interface Ocpp201ServerDependencies {
   // Check the tenant, token and charging station of a new connection (throws if not allowed)
   authenticate: (identity: Ocpp201ConnectionIdentity) => Promise<void>;
@@ -47,6 +49,7 @@ export default class Ocpp201Server extends OCPPServer {
   private readonly dependencies: Ocpp201ServerDependencies;
   private listenSocket: uWS.us_listen_socket = null;
   private pingInterval: NodeJS.Timeout = null;
+  private localListInterval: NodeJS.Timeout = null;
 
   public constructor(centralSystemConfig: CentralSystemConfiguration, chargingStationConfig: ChargingStationConfiguration,
       dependencies?: Partial<Ocpp201ServerDependencies>) {
@@ -134,12 +137,18 @@ export default class Ocpp201Server extends OCPPServer {
     // Ping the connections periodically (keeps the proxies' connections alive and detects the dead ones)
     this.pingInterval = setInterval(() => this.pingConnections(),
       (this.chargingStationConfig?.pingIntervalOCPPJSecs ?? 60) * 1000);
+    // Send the tags changed since the last synchronization to the connected Charging Stations
+    this.localListInterval = setInterval(() => this.synchronizeLocalLists(), LOCAL_LIST_SYNCHRONIZATION_INTERVAL_MILLIS);
   }
 
   public stop(): void {
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
+    }
+    if (this.localListInterval) {
+      clearInterval(this.localListInterval);
+      this.localListInterval = null;
     }
     for (const connection of Array.from(this.connections.values())) {
       connection.close(WS_CLOSE_NORMAL, 'Server shutdown');
@@ -290,6 +299,19 @@ export default class Ocpp201Server extends OCPPServer {
           this.connections.delete(connection.getKey());
         }
       }
+    }
+  }
+
+  private synchronizeLocalLists(): void {
+    for (const connection of Array.from(this.connections.values())) {
+      const requestHandler = connection.getRequestHandler();
+      if (connection.isClosed() || !(requestHandler instanceof Ocpp201ChargingStationService)) {
+        continue;
+      }
+      requestHandler.synchronizeLocalList().catch((error) => {
+        this.log('warning', connection.identity, ServerAction.WS_SERVER_MESSAGE,
+          `Local Authorization List cannot be synchronized: ${(error as Error)?.message}`);
+      });
     }
   }
 

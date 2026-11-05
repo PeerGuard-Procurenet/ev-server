@@ -10,6 +10,7 @@ import OCPPUtils from '../../ocpp/utils/OCPPUtils';
 import Ocpp201ClockSynchronizer from './Ocpp201ClockSynchronizer';
 import Ocpp201Error from '../Ocpp201Error';
 import Ocpp201EvseStateManager from '../mapping/Ocpp201EvseStateManager';
+import Ocpp201LocalListSynchronizer from './Ocpp201LocalListSynchronizer';
 import Ocpp201Logger from '../Ocpp201Logger';
 import Ocpp201Mapper from '../mapping/Ocpp201Mapper';
 import Ocpp201TransactionStorage from '../storage/Ocpp201TransactionStorage';
@@ -33,6 +34,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
   private readonly ocppService: OCPPService;
   private readonly channel: Ocpp201RequestChannel | null;
   private readonly clockSynchronizer: Ocpp201ClockSynchronizer;
+  private readonly localListSynchronizer: Ocpp201LocalListSynchronizer;
   private readonly reconciliationDelayMillis: number;
   private bootRejected = false;
   private evseStatesRestored = false;
@@ -45,6 +47,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     this.ocppService = ocppService;
     this.channel = channel;
     this.clockSynchronizer = new Ocpp201ClockSynchronizer(identity, channel);
+    this.localListSynchronizer = new Ocpp201LocalListSynchronizer(identity, channel);
     this.reconciliationDelayMillis = reconciliationDelayMillis;
   }
 
@@ -130,6 +133,14 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     if (chargingStation) {
       await ChargingStationStorage.saveChargingStationRuntimeData(tenant, chargingStation.id, { lastSeen: new Date(now) });
     }
+  }
+
+  // Send the Local Authorization List again when the tags have changed (called periodically by the server)
+  public async synchronizeLocalList(): Promise<void> {
+    if (!this.channel || this.channel.isClosed() || !this.localListSynchronizer.isSupported()) {
+      return;
+    }
+    await this.localListSynchronizer.synchronize((await this.buildHeaders(ServerAction.WS_SERVER_MESSAGE)).tenant);
   }
 
   // After a boot, end the transactions that the Charging Station reports as not ongoing anymore (e.g. lost in a power outage)
@@ -318,6 +329,8 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
         !(mapping.authorizationStatus && Ocpp201Mapper.isSameTagID(mapping.idToken, startTagID))) {
       mapping.idToken = startTagID;
       mapping.idTokenType = transactionEvent.idToken?.type ?? Ocpp201IdTokenType.CENTRAL;
+      // Authorized by the Charging Station with its Local Authorization List
+      mapping.authorizedOffline = !!transactionEvent.offline;
       mapping.authorizationStatus = await this.startPlatformTransaction(headers, mapping);
       // The ID Token Info is only returned for the ID Token of the request
       if (transactionEvent.idToken) {
@@ -441,7 +454,7 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       idTag: mapping.idToken,
       meterStart,
       timestamp: mapping.startedAt.toISOString(),
-    } as OCPPStartTransactionRequestExtended);
+    } as OCPPStartTransactionRequestExtended, !!mapping.authorizedOffline);
     if (result.transactionId > 0 && result.idTagInfo?.status === OCPPAuthorizationStatus.ACCEPTED) {
       mapping.platformTransactionID = result.transactionId;
       this.log('info', ServerAction.OCPP_START_TRANSACTION,
@@ -495,7 +508,8 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
     if (tagID) {
       stopTransaction.idTag = tagID;
     }
-    const result = await this.ocppService.handleStopTransaction(headers, stopTransaction);
+    // The end of a session authorized offline is not authorized again (the tag may not be authorized anymore)
+    const result = await this.ocppService.handleStopTransaction(headers, stopTransaction, false, !!mapping.authorizedOffline);
     this.log(result.idTagInfo?.status === OCPPAuthorizationStatus.ACCEPTED ? 'info' : 'error', ServerAction.OCPP_STOP_TRANSACTION,
       `OCPP 2.0.1 transaction '${mapping.transactionId}' ended (reason '${transactionEvent.transactionInfo.stoppedReason ?? 'Local'}'), stop of transaction ID '${mapping.platformTransactionID}': '${result.idTagInfo?.status}'`);
   }
@@ -603,6 +617,11 @@ export default class Ocpp201ChargingStationService implements Ocpp201RequestHand
       await this.clockSynchronizer.configureLocalTime(timezone);
     } catch (error) {
       this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Local time cannot be set after the boot: ${(error as Error)?.message}`);
+    }
+    try {
+      await this.localListSynchronizer.configureAfterBoot((await this.buildHeaders(ServerAction.WS_SERVER_MESSAGE)).tenant);
+    } catch (error) {
+      this.log('warning', ServerAction.WS_SERVER_MESSAGE, `Local Authorization List cannot be sent after the boot: ${(error as Error)?.message}`);
     }
     try {
       await this.reconcileTransactionsAfterBoot(bootReason);

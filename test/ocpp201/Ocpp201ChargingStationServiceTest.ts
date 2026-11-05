@@ -316,6 +316,21 @@ describe('OCPP 2.0.1 Charging Station service (business adapter)', () => {
       expect(ocppService.handleStopTransaction.mock.calls[0][1]).toMatchObject({ transactionId: 555, meterStop: 900 });
     });
 
+    it('should record a session authorized offline by the Charging Station without authorizing its tag again', async () => {
+      await transactionEvent('Started', 0, { offline: true, idToken, evse: { id: 1 }, meterValue: energy(100, 'Transaction.Begin') });
+      await transactionEvent('Ended', 1, { offline: true, transactionInfo: { stoppedReason: 'Local' }, meterValue: energy(900, 'Transaction.End') });
+      expect(ocppService.handleStartTransaction.mock.calls[0][2]).toBe(true);
+      expect(ocppService.handleStopTransaction.mock.calls[0].slice(2)).toEqual([false, true]);
+      expect(mappingStore.get(`${chargingStationID}~TX-1`)).toMatchObject({ authorizedOffline: true, platformTransactionID: 555 });
+    });
+
+    it('should authorize the tag of a session started online', async () => {
+      await transactionEvent('Started', 0, { idToken, evse: { id: 1 } });
+      await transactionEvent('Ended', 1, { offline: true, transactionInfo: { stoppedReason: 'Local' } });
+      expect(ocppService.handleStartTransaction.mock.calls[0][2]).toBe(false);
+      expect(ocppService.handleStopTransaction.mock.calls[0].slice(2)).toEqual([false, false]);
+    });
+
     it('should create the connector before starting a transaction on an unknown EVSE', async () => {
       await transactionEvent('Started', 0, { idToken, evse: { id: 2, connectorId: 1 } });
       expect(ocppService.handleStatusNotification.mock.calls[0][1]).toMatchObject({ connectorId: 2, status: 'Preparing', errorCode: 'NoError' });
