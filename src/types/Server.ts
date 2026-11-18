@@ -475,6 +475,14 @@ export enum ServerAction {
   BILLING_TRANSFER_SEND = 'BillingTransferSend',
   BILLING_TRANSFER_DISPATCH_FUNDS = 'BillingTransferDispatchFunds',
 
+  PREPAID_PAYMENT_GET_CHARGER = 'PrepaidPaymentGetCharger',
+  PREPAID_PAYMENT_INITIALIZE = 'PrepaidPaymentInitialize',
+  PREPAID_PAYMENT_GET = 'PrepaidPaymentGet',
+  PREPAID_PAYMENT_VERIFY = 'PrepaidPaymentVerify',
+  PREPAID_PAYMENT_START = 'PrepaidPaymentStart',
+  PREPAID_PAYMENT_STOP = 'PrepaidPaymentStop',
+  PREPAID_PAYMENT_WEBHOOK = 'PrepaidPaymentWebhook',
+
   PRICING = 'Pricing',
   PRICING_DEFINITION = 'PricingDefinition',
   PRICING_DEFINITIONS = 'PricingDefinitions',
@@ -730,6 +738,15 @@ export enum RESTServerRoute {
   REST_BILLING_TRANSFER_FINALIZE = 'billing/transfers/:id/finalize',
   REST_BILLING_TRANSFER_SEND = 'billing/transfers/:id/send',
   REST_BILLING_TRANSFER_DOWNLOAD_INVOICE = 'billing/transfers/:id/invoice/download',
+
+  // PREPAID PAYSTACK PAYMENT (customer charging journey)
+  REST_PREPAID_CHARGER = 'prepaid/chargers/:id',
+  REST_PREPAID_PAYMENT_INITIALIZE = 'prepaid/payments/initialize',
+  REST_PREPAID_PAYMENT = 'prepaid/payments/:reference',
+  REST_PREPAID_PAYMENT_VERIFY = 'prepaid/payments/:reference/verify',
+  REST_PREPAID_PAYMENT_START = 'prepaid/payments/:reference/start',
+  REST_PREPAID_PAYMENT_STOP = 'prepaid/payments/:reference/stop',
+  REST_PREPAID_PAYSTACK_WEBHOOK = 'prepaid/paystack/webhook',
 
   // PRICING URLs for CRUD operations
   REST_PRICING_DEFINITIONS = 'pricing-definitions',

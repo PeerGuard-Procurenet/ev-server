@@ -6,6 +6,7 @@ import BillingService from '../../service/BillingService';
 import CarService from '../../service/CarService';
 import ChargingStationService from '../../service/ChargingStationService';
 import CompanyService from '../../service/CompanyService';
+import PrepaidPaymentService from '../../service/PrepaidPaymentService';
 import RouterUtils from '../../../../../utils/RouterUtils';
 import SiteAreaService from '../../service/SiteAreaService';
 import SiteService from '../../service/SiteService';
@@ -31,6 +32,14 @@ export default class UtilRouter {
     this.buildRouteGetTenantEmailLogo();
     this.buildRouteBillingRefreshAccount();
     this.buildRouteBillingActivateAccount();
+    // Prepaid Paystack customer journey (tenant-scoped, no JWT)
+    this.buildRoutePrepaidGetCharger();
+    this.buildRoutePrepaidInitializePayment();
+    this.buildRoutePrepaidGetPayment();
+    this.buildRoutePrepaidVerifyPayment();
+    this.buildRoutePrepaidStartCharging();
+    this.buildRoutePrepaidStopCharging();
+    this.buildRoutePrepaidPaystackWebhook();
     return this.router;
   }
 
@@ -106,6 +115,55 @@ export default class UtilRouter {
     this.router.patch(`/${RESTServerRoute.REST_BILLING_ACCOUNT_ACTIVATE}`, (req: Request, res: Response, next: NextFunction) => {
       req.params.ID = req.params.id;
       void RouterUtils.handleRestServerAction(BillingService.handleActivateAccount.bind(this), ServerAction.BILLING_ACCOUNT_ACTIVATE, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidGetCharger(): void {
+    this.router.get(`/${RESTServerRoute.REST_PREPAID_CHARGER}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handleGetCharger.bind(this), ServerAction.PREPAID_PAYMENT_GET_CHARGER, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidInitializePayment(): void {
+    this.router.post(`/${RESTServerRoute.REST_PREPAID_PAYMENT_INITIALIZE}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handleInitializePayment.bind(this), ServerAction.PREPAID_PAYMENT_INITIALIZE, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidGetPayment(): void {
+    this.router.get(`/${RESTServerRoute.REST_PREPAID_PAYMENT}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handleGetPayment.bind(this), ServerAction.PREPAID_PAYMENT_GET, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidVerifyPayment(): void {
+    this.router.post(`/${RESTServerRoute.REST_PREPAID_PAYMENT_VERIFY}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handleVerifyPayment.bind(this), ServerAction.PREPAID_PAYMENT_VERIFY, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidStartCharging(): void {
+    this.router.post(`/${RESTServerRoute.REST_PREPAID_PAYMENT_START}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handleStartCharging.bind(this), ServerAction.PREPAID_PAYMENT_START, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidStopCharging(): void {
+    this.router.post(`/${RESTServerRoute.REST_PREPAID_PAYMENT_STOP}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handleStopCharging.bind(this), ServerAction.PREPAID_PAYMENT_STOP, req, res, next);
+    });
+  }
+
+  private buildRoutePrepaidPaystackWebhook(): void {
+    this.router.post(`/${RESTServerRoute.REST_PREPAID_PAYSTACK_WEBHOOK}`, (req: Request, res: Response, next: NextFunction) => {
+      void RouterUtils.handleRestServerAction(
+        PrepaidPaymentService.handlePaystackWebhook.bind(this), ServerAction.PREPAID_PAYMENT_WEBHOOK, req, res, next);
     });
   }
 }
