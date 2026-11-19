@@ -33,6 +33,7 @@ import OCPPStorage from '../../../storage/mongodb/OCPPStorage';
 import OCPPUtils from '../utils/OCPPUtils';
 import OCPPValidator from '../validator/OCPPValidator';
 import OICPFacade from '../../oicp/OICPFacade';
+import PrepaidPaymentService from '../../rest/v1/service/PrepaidPaymentService';
 import PricingFacade from '../../../integration/pricing/PricingFacade';
 import { ServerAction } from '../../../types/Server';
 import SiteArea from '../../../types/SiteArea';
@@ -248,6 +249,9 @@ export default class OCPPService {
       await OCPPUtils.updateChargingStationConnectorRuntimeDataWithTransaction(tenant, chargingStation, transaction);
       // Save Charging Station
       await ChargingStationStorage.saveChargingStation(tenant, chargingStation);
+      // Prepaid Paystack: stop when purchased energy is delivered
+      await PrepaidPaymentService.checkAndStopIfEnergyPurchased(
+        tenant, transaction.id, transaction.currentTotalConsumptionWh || 0);
       // Handle End Of charge
       await this.checkNotificationEndOfCharge(tenant, chargingStation, transaction);
       // First Meter Value -> Trigger Smart Charging to adjust the limit
@@ -406,6 +410,9 @@ export default class OCPPService {
       await OICPFacade.processStartTransaction(tenant, newTransaction, chargingStation, chargingStation.siteArea, user, ServerAction.OCPP_START_TRANSACTION);
       // Save it
       await TransactionStorage.saveTransaction(tenant, newTransaction);
+      // Link prepaid Paystack session when remote start used a prepaid tag
+      await PrepaidPaymentService.linkTransactionIfNeeded(
+        tenant, chargingStation.id, newTransaction.connectorId, startTransaction.tagID, newTransaction.id);
       // Clean up
       await OCPPUtils.updateChargingStationConnectorRuntimeDataWithTransaction(tenant, chargingStation, newTransaction);
       // Save
@@ -515,6 +522,9 @@ export default class OCPPService {
       await OICPFacade.processStopTransaction(tenant, transaction, chargingStation, chargingStation.siteArea, user, ServerAction.OCPP_STOP_TRANSACTION);
       // Save the transaction
       await TransactionStorage.saveTransaction(tenant, transaction);
+      // Complete prepaid session if still open (charger or remote stop)
+      await PrepaidPaymentService.completePrepaidSessionFromOcppStop(
+        tenant, transaction.id, transaction.stop?.totalConsumptionWh || transaction.currentTotalConsumptionWh || 0);
       // Notify
       NotificationHelper.notifyStopTransaction(tenant, transaction, chargingStation, user, alternateUser);
       // Recompute the Smart Charging Plan

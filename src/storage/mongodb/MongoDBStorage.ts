@@ -117,6 +117,14 @@ export default class MongoDBStorage {
       { fields: { invoiceID: 1 }, options: { unique: true } },
       { fields: { createdOn: 1 } },
     ]);
+    // Prepaid payments (Paystack)
+    await this.handleIndexesInCollection(tenantID, 'prepaidpayments', [
+      { fields: { reference: 1 }, options: { unique: true } },
+      { fields: { status: 1, createdOn: 1 } },
+      { fields: { transactionID: 1 } },
+      { fields: { chargingStationID: 1, connectorID: 1 } },
+      { fields: { email: 1 } },
+    ]);
     // Logs
     await this.handleIndexesInCollection(tenantID, 'logs', [
       { fields: { timestamp: 1 }, options: { expireAfterSeconds: 14 * 24 * 3600 } },

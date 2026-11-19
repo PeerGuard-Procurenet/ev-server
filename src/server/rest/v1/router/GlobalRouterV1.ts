@@ -12,6 +12,7 @@ import LoggingRouter from './api/LogRouter';
 import NotificationRouter from './api/NotificationRouter';
 import OCPIEndpointRouter from './api/OCPIEndpointRouter';
 import OICPEndpointRouter from './api/OICPEndpointRouter';
+import PrepaidPaymentRouter from './api/PrepaidPaymentRouter';
 import PricingRouter from './api/PricingRouter';
 import RegistrationTokenRouter from './api/RegistrationTokenRouter';
 import SessionHashService from '../service/SessionHashService';
@@ -67,6 +68,7 @@ export default class GlobalRouterV1 {
         new NotificationRouter().buildRoutes(),
         new OCPIEndpointRouter().buildRoutes(),
         new OICPEndpointRouter().buildRoutes(),
+        new PrepaidPaymentRouter().buildRoutes(),
         new PricingRouter().buildRoutes(),
         new RegistrationTokenRouter().buildRoutes(),
         new SiteAreaRouter().buildRoutes(),

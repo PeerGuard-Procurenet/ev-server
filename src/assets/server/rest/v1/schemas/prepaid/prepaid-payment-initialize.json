@@ -1,0 +1,35 @@
+{
+  "$id": "prepaid-payment-initialize",
+  "title": "Initialize Prepaid Paystack Payment",
+  "type": "object",
+  "properties": {
+    "chargingStationID": {
+      "$ref": "common#/definitions/string-id"
+    },
+    "connectorID": {
+      "type": "integer",
+      "minimum": 1,
+      "sanitize": "mongo"
+    },
+    "energyKWh": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "sanitize": "mongo"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "sanitize": "mongo"
+    },
+    "callbackURL": {
+      "type": "string",
+      "sanitize": "mongo"
+    }
+  },
+  "required": [
+    "chargingStationID",
+    "connectorID",
+    "energyKWh",
+    "email"
+  ]
+}
